@@ -8,6 +8,19 @@
 <meta property="og:title" content="1 из 195 · 1 in 195 · 195分之1">
 <meta property="og:description" content="Жребий назначает вас главой реальной страны. Сколько вы продержитесь?">
 <meta property="og:type" content="website">
+<!-- Yandex.Metrika counter -->
+<script type="text/javascript">
+    (function(m,e,t,r,i,k,a){
+        m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
+        m[i].l=1*new Date();
+        for (var j = 0; j < document.scripts.length; j++) {if (document.scripts[j].src === r) { return; }}
+        k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)
+    })(window, document,'script','https://mc.yandex.ru/metrika/tag.js?id=113832869', 'ym');
+
+    ym(113832869, 'init', {ssr:true, webvisor:true, clickmap:true, ecommerce:"dataLayer", referrer: document.referrer, url: location.href, accurateTrackBounce:true, trackLinks:true});
+</script>
+<noscript><div><img src="https://mc.yandex.ru/watch/113832869" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
+<!-- /Yandex.Metrika counter -->
 <style>
 :root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 body{margin:0;font:14px system-ui,-apple-system,"Segoe UI",sans-serif}
@@ -681,11 +694,12 @@ const GTXT={
 };
 function evText(e){ if(e.gid){ const t=GTXT[LANG][e.gid](e.p); return t; } return {h:tr(e.h),x:tr(e.x)}; }
 function optLabel(e,s){ return tr(s).replace("{n}",e.p&&e.p.half!=null?e.p.half:""); }
-function setLang(l){ LANG=l; try{localStorage.setItem("lang",l)}catch(e){} applyLang(); render(); }
+function setLang(l){ track("lang_"+l); LANG=l; try{localStorage.setItem("lang",l)}catch(e){} applyLang(); render(); }
 function applyLang(){ document.documentElement.lang=LANG==="zh"?"zh-CN":LANG; document.title=u("title"); document.body.classList.toggle("cjk",LANG==="zh"); }
 function langBar(){ return `<div class="langs" role="group" aria-label="Language">${[["ru","RU"],["en","EN"],["zh","中文"]].map(([k,n])=>`<button class="lg ${k===LANG?"on":""}" data-lang="${k}" aria-pressed="${k===LANG}">${n}</button>`).join("")}</div>`; }
 
 const TERM=16, START_YEAR=2027;
+const track=(g,p)=>{try{if(window.ym) window.ym(113832869,"reachGoal",g,p||{});}catch(e){}};
 let S=null;
 const $=s=>document.querySelector(s);
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
@@ -733,6 +747,7 @@ function newGame(){
   newRuler();
   S.adv=["fin","gen","soc","opp"].map(newAdv);
   beginTerm(); S.phase="roll";
+  track("start",{country:S.c.n,lang:LANG});
   render();
 }
 function beginTerm(){
@@ -834,6 +849,7 @@ function choose(k){
   else if(S.m.l>=100){S.phase="end";S.why="L";}
   else if(tt()>=TERM){S.phase="end";S.why="term"; R.goals.push({n:goalObj().n,ok:goalObj().ok()});}
   else S.ev=pick();
+  if(S.phase==="end") track("reign_end",{why:S.why,country:S.c.n,years:Math.round((S.turn-R.startTurn)/4),term:S.term});
   render();
 }
 function vote(){
@@ -946,6 +962,7 @@ function endHTML(){
 }
 function nextTerm(){ S.term++; beginTerm(); render(); scrollTo({top:0}); }
 function successor(){
+  track("successor",{country:S.c.n,ruler:S.ruler.no+1});
   const L=legacy(); S.rulers.push({no:S.ruler.no,y:L.y,t:L.t,why:S.why});
   for(const [k] of M) S.m[k]=clamp(S.m[k],22,90);
   S.m.p=clamp(S.m.p+8,0,95); S.m.t=Math.max(S.m.t,40); S.debt*=0.8; S.crisis=null; S.notes=[];
