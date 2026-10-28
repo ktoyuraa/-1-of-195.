@@ -919,7 +919,7 @@ function choose(k){
   else if(M.some(([key])=>S.m[key]>=CAP)){S.phase="end";S.why=OVER[M.find(([key])=>S.m[key]>=CAP)[0]];}
   else if(tt()>=TERM){S.phase="end";S.why="term"; termResult();}
   else S.ev=pick();
-  if(S.phase==="end") track("reign_end",{why:S.why,country:S.c.n,years:Math.round((S.turn-R.startTurn)/4),term:S.term});
+  if(S.phase==="end"&&S.why==="term") track("term_end",{country:S.c.n,term:S.term});
   render();
 }
 function termResult(){
@@ -1024,6 +1024,7 @@ function endHTML(){
   else { title=tr(ENDS[S.why][0]); text=tr(ENDS[S.why][1]); }
   if(!final) return `<div class="card end fade"><div class="label">${tr(S.c.n)} · ${u("inPower",durStr(y))}</div><h2>${title}</h2><p>${text}</p>${goalLine}${tableHTML(S.start,u("termStart"))}<div class="row">${btns}</div></div>`;
   const L=legacy();
+  if(!R.endTracked){R.endTracked=true; track("reign_end",{why:S.why,country:S.c.n,years:Math.round(L.y),terms:S.term,title:L.t});}
   const list=[...S.rulers,{no:R.no,y:L.y,t:L.t,why:S.why}];
   const howS=r=>u("how")[r.why]||tr(ENDS[r.why][0]);
   return `<div class="card end fade">
