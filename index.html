@@ -642,7 +642,7 @@ const U={
   go:"Принять присягу", footIntro:"Данные ≈ 2023–2024 (Всемирный банк, МВФ), округлены.", foot:"Данные ≈ 2023–2024, округлены. Прототип.",
   rolling:"Жребий брошен…", rollsub:(pop,age)=>`${pop} человек ждут ваших решений. Вам ${age}.`,
   years:n=>ruPl(n,"год","года","лет"), age:n=>`${n} ${ruPl(n,"год","года","лет")}`,
-  termLabel:(t,y,q,yr)=>`${t}-й срок · ${y}-й год · ${q} кв. · ${yr}`,
+  hintP:"ожидания растут", hintT:"все просят потратить", termLabel:(t,y,q,yr)=>`${t}-й срок · ${y}-й год · ${q} кв. · ${yr}`,
   forecast:"Прогноз выборов", lastTerm:"Последний срок по конституции",
   goal:"Цель срока", goalOn:"выполняется", goalNot:"пока нет", goalDone:"выполнена", goalFail:"не выполнена",
   pp:"п.п.", minimum:"минимум", of3:n=>`${n} из 3`,
@@ -682,7 +682,7 @@ const U={
   go:"Take the oath", footIntro:"Data ≈ 2023–2024 (World Bank, IMF), rounded.", foot:"Data ≈ 2023–2024, rounded. Prototype.",
   rolling:"Drawing lots…", rollsub:(pop,age)=>`${pop} people await your decisions. You are ${age}.`,
   years:n=>n===1?"year":"years", age:n=>`${n}`,
-  termLabel:(t,y,q,yr)=>`Term ${t} · year ${y} · Q${q} · ${yr}`,
+  hintP:"expectations rising", hintT:"everyone wants a share", termLabel:(t,y,q,yr)=>`Term ${t} · year ${y} · Q${q} · ${yr}`,
   forecast:"Election forecast", lastTerm:"Final constitutional term",
   goal:"Term goal", goalOn:"on track", goalNot:"not yet", goalDone:"achieved", goalFail:"missed",
   pp:"pp", minimum:"lowest", of3:n=>`${n} of 3`,
@@ -722,7 +722,7 @@ const U={
   go:"宣誓就职", footIntro:"数据约为2023–2024年（世界银行、国际货币基金组织），已取整。", foot:"数据约为2023–2024年，已取整。原型。",
   rolling:"正在抽签……", rollsub:(pop,age)=>`${pop}人在等待你的决定。你今年${age}。`,
   years:n=>"年", age:n=>`${n}岁`,
-  termLabel:(t,y,q,yr)=>`第${t}届任期 · 第${y}年 · 第${q}季度 · ${yr}`,
+  hintP:"期望在上升", hintT:"人人都想花钱", termLabel:(t,y,q,yr)=>`第${t}届任期 · 第${y}年 · 第${q}季度 · ${yr}`,
   forecast:"选举预测", lastTerm:"宪法规定的最后一届任期",
   goal:"任期目标", goalOn:"进展顺利", goalNot:"尚未达成", goalDone:"已达成", goalFail:"未达成",
   pp:"个百分点", minimum:"最低", of3:n=>`${n}/3`,
@@ -921,7 +921,7 @@ function pickRaw(){
 function choose(k){
   const ev=S.ev,o=ev.o[k],eff=o[1],frag=S.c.tags.includes("fragile");
   const before={...S.m}; S.notes=[];
-  for(const [key] of M){ let v=eff[key]||0; if(v<0&&frag) v=Math.round(v*1.25); if(MODE==="gov"&&key==="p"&&v>0) v=Math.round(v*(S.m.p>=82?0.35:S.m.p>=70?0.6:1)); if(v<0&&S.term>3) v=Math.round(v*Math.min(1.5,1+0.06*(S.term-3))); S.m[key]+=v; }
+  for(const [key] of M){ let v=eff[key]||0; if(v<0&&frag) v=Math.round(v*1.25); if(v>0&&(key==="p"||key==="t"||(MODE==="gov"&&key==="e"))) v=Math.round(v*(S.m[key]>=84?0.45:S.m[key]>=72?0.7:1)); /* у потолка рост даётся труднее */ if(v<0&&S.term>3) v=Math.round(v*Math.min(1.5,1+0.06*(S.term-3))); S.m[key]+=v; }
   if(eff._h) S.ruler.health=clamp(S.ruler.health+eff._h,0,100);
   if(eff._loy) for(const r in eff._loy){const a=advBy(r); a.loy=clamp(a.loy+eff._loy[r],0,100);}
   if(eff._rep) replaceAdv(eff._rep,eff._rep==="opp"?"arrest":"fired");
@@ -933,6 +933,9 @@ function choose(k){
   S.m.t+=Math.round((S.m.e-50)/14)-(S.debt>100?2:0);
   S.m.p+=Math.round((S.m.e-50)/22);
   if(S.m.t<20) S.m.e-=2;
+  if(S.m.t>=86) S.m.t-=2; else if(S.m.t>=76) S.m.t-=1; // полная казна: все просят потратить
+  if(S.m.p>=86) S.m.p-=2; else if(S.m.p>=78) S.m.p-=1; // ожидания растут
+  if(MODE==="gov"&&S.m.e>=80) S.m.e-=1;
   if(advBy("opp").loy<10) S.m.p-=1;
   for(const [key] of M) S.m[key]=clamp(Math.round(S.m[key]),0,100);
   const growth=(S.m.e-50)/25-Math.max(0,Math.log10(S.gdp/10))*0.35+rnd(-.4,.4);
@@ -996,7 +999,7 @@ function vote(){
 const H=e=>e.fp?u("fpLogH",tr(e.c)):e.fpe?u(e.fpe+"H",tr(e.c)):e.gid?(MODE==="gov"&&GTXT_GOV[e.gid]?GTXT_GOV[e.gid]:GTXT[LANG][e.gid])(e.p).h:tr(e.h);
 function gaugeHTML(){
   return `<div class="gauges">${M.map(([k,n,s])=>{const v=S.m[k];const col=v<25||v>=90?"var(--bad)":v<40||v>=85?"var(--warn)":"var(--good)";
-   return `<div class="g" data-k="${k}"><div class="top"><span class="name">${tr(n)}</span><span class="val">${v}</span></div><div class="bar"><i style="width:${v}%;background:${col}"></i></div><div class="sub">${tr(s)}${MODE==="gov"&&k==="p"&&v>=70?" · ожидания растут":""}</div></div>`}).join("")}</div>`;
+   return `<div class="g" data-k="${k}"><div class="top"><span class="name">${tr(n)}</span><span class="val">${v}</span></div><div class="bar"><i style="width:${v}%;background:${col}"></i></div><div class="sub">${tr(s)}${k==="p"&&v>=76?" · "+u("hintP"):k==="t"&&v>=76?" · "+u("hintT"):""}</div></div>`}).join("")}</div>`;
 }
 function teamHTML(){
   return `<div class="team">${S.adv.map(a=>{const R=ROLES[a.role],v=a.loy,col=v<20?"var(--bad)":v<40?"var(--warn)":"var(--good)",served=Math.floor((S.turn-a.since)/4);
@@ -1835,8 +1838,6 @@ function govAfterChoose(ev,eff){
   if(eff._v) S.visitPrep=eff._v;
   if(ev.chr&&S.chars){const C=S.chars[ev.chr]; if(C.st===0) C.g=!!eff._g; C.st++;}
   S.termMinP=Math.min(S.termMinP??100,S.m.p);
-  if(S.m.t>=80) S.m.t-=2; else if(S.m.t>=72) S.m.t-=1; // Москва урезает трансферты богатым
-  if(S.m.p>=85) S.m.p-=2; else if(S.m.p>=75) S.m.p-=1; // ожидания жителей растут
 }
 
 // --- План Москвы ---
