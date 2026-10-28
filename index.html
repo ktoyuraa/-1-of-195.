@@ -787,7 +787,10 @@ function applyLang(){ document.documentElement.lang=LANG==="zh"?"zh-CN":LANG; do
 function langBar(){ return `<div class="langs" role="group" aria-label="Language">${[["ru","RU"],["en","EN"],["zh","中文"]].map(([k,n])=>`<button class="lg ${k===LANG?"on":""}" data-lang="${k}" aria-pressed="${k===LANG}">${n}</button>`).join("")}</div>`; }
 
 const TERM=16, START_YEAR=2027;
-const track=(g,p)=>{try{if(window.ym) window.ym(113832869,"reachGoal",g,p||{});}catch(e){}};
+const track=(g,p)=>{try{if(window.ym){ window.ym(113832869,"reachGoal",g,p||{});
+  if(MODE==="gov"&&["start","term_end","reign_end","successor"].includes(g)) window.ym(113832869,"reachGoal","gov_"+g,p||{});
+  if(MODE==="gov"&&g==="reign_end"&&p&&p.why==="L") window.ym(113832869,"reachGoal","gov_moscow",p);
+  if(MODE!=="gov"&&g==="start") window.ym(113832869,"reachGoal","pres_start",p||{}); }}catch(e){}};
 let S=null;
 const $=s=>document.querySelector(s);
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
