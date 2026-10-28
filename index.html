@@ -158,7 +158,7 @@ body.cjk .ph,body.cjk .mast b,body.cjk .stories h4{letter-spacing:0}
 .foot{font-size:12px;color:var(--muted);text-align:center}
 
 /* team */
-.team{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.team{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
 @media (max-width:620px){.team{grid-template-columns:repeat(2,1fr)}}
 .adv{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:4px;min-width:0}
 .adv b{font-weight:600;font-size:14px;line-height:1.25}
@@ -187,6 +187,23 @@ body.cjk .ph,body.cjk .mast b,body.cjk .stories h4{letter-spacing:0}
 .lg.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
 body.cjk .label{letter-spacing:.04em}
 body.cjk h1,body.cjk h2,body.cjk .card h3,body.cjk .roll{font-family:"Noto Sans SC",var(--display);font-weight:700;letter-spacing:0}
+/* внешняя политика */
+.fprow{display:flex}
+.fpb{width:100%;padding:11px 16px;font-size:14.5px}
+.fpb:disabled{opacity:.55;cursor:not-allowed}
+.fpsel{display:flex;flex-direction:column;gap:6px}
+.fpsel select{font:inherit;font-size:15px;padding:10px 12px;border:1.5px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);width:100%}
+.fpstat{display:flex;align-items:center;flex-wrap:wrap;gap:8px 10px;font-variant-numeric:tabular-nums}
+.relbar{position:relative;flex:1 1 140px;height:8px;background:var(--bg);border-radius:4px;overflow:hidden}
+.relbar::before{content:"";position:absolute;left:50%;top:0;bottom:0;width:2px;background:var(--line)}
+.relbar i{position:absolute;top:0;bottom:0}
+.fpg{display:flex;flex-direction:column;gap:6px}
+.opt.fpa .t{display:flex;flex-direction:column;gap:2px}
+.opt[disabled]{opacity:.5;cursor:not-allowed}
+.opt[disabled]:hover{border-color:transparent}
+.fprisk{font-family:var(--mono);font-size:11.5px;color:var(--warn)}
+.fpwhy{font-family:var(--mono);font-size:11.5px;color:var(--bad)}
+.note.fpn{border-left-color:var(--seal);color:var(--ink)}
 .fade{animation:fade .35s ease}
 @keyframes fade{from{opacity:.25;transform:translateY(6px)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){.fade{animation:none}.bar i{transition:none}}
@@ -755,7 +772,7 @@ const GTXT={
   for:p=>({h:`${tr(p.w)}提出合作`,x:`${tr(p.w)}提出${tr(p.of)}。作为回报，希望你在国际舞台上给予政治支持。`})
  }
 };
-function evText(e){ if(e.gid){ const t=GTXT[LANG][e.gid](e.p); return t; } return {h:tr(e.h),x:tr(e.x)}; }
+function evText(e){ if(e.fpe) return {h:u(e.fpe+"H",tr(e.c)),x:u(e.fpe+"X",tr(e.c))}; if(e.gid){ const t=GTXT[LANG][e.gid](e.p); return t; } return {h:tr(e.h),x:tr(e.x)}; }
 function optLabel(e,s){ return tr(s).replace("{n}",e.p&&e.p.half!=null?e.p.half:""); }
 function setLang(l){ track("lang_"+l); LANG=l; try{localStorage.setItem("lang",l)}catch(e){} applyLang(); render(); }
 function applyLang(){ document.documentElement.lang=LANG==="zh"?"zh-CN":LANG; document.title=u("title"); document.body.classList.toggle("cjk",LANG==="zh"); }
@@ -807,14 +824,15 @@ function newGame(){
   };
   S={c,m,gdp:c.gdp,debt:c.debt,turn:0,queue:[],usedAt:{},genSeen:[],healthSeen:[],log:[],ev:null,last:null,notes:[],
      crisis:null,lastCrisis:0,crisisSeen:[],rulers:[],adv:[],reactAt:{},goalEvTerm:0,phase:"roll"};
-  newRuler();
+  newRuler(); fpInit();
   S.adv=["fin","gen","soc","opp"].map(newAdv);
   beginTerm(); S.phase="roll";
   track("start",{country:S.c.n,lang:LANG});
   render();
 }
 function beginTerm(){
-  S.termStart=S.turn; S.start=snap(); S.builds=0; S.last=null; S.why=null;
+  S.termStart=S.turn; S.start=snap(); S.builds=0; S.last=null; S.why=null; S.fpUI=null;
+  if(S.term>=2&&!advBy("dip")){ S.adv.push(newAdv("dip")); S.notes.push({k:"fpNew"}); }
   const pool=GOALS.filter(g=>!g.av||g.av()).sort(()=>Math.random()-.5);
   S.offer=pool.slice(0,3).map(g=>g.id); S.goal=null; S.phase="goal";
 }
@@ -832,6 +850,7 @@ function pickRaw(){
   if(S.crisis){const C=CRISES[S.crisis.id],st=C.steps[S.crisis.step]; return {tag:"crisis",h:st[0],x:st[1],o:st[2]};}
   if(hasElection()&&tt()===12) return ELECTION[0];
   if(hasElection()&&tt()===14) return ELECTION[1+Math.floor(Math.random()*2)];
+  fpInit(); { const fe=fpEvent(); if(fe) return fe; }
   const angry=S.adv.find(a=>a.loy<=25&&a.cool<=S.turn);
   if(angry){angry.cool=S.turn+8; const E=ADV_EV[angry.role]; return {tag:"team",h:E[0],x:E[1],o:E[2]};}
   const due=S.queue.findIndex(q=>q.at<=S.turn);
@@ -889,13 +908,15 @@ function choose(k){
   S.debt=clamp(S.debt+(before.t-S.m.t)*0.6+(50-S.m.t)/40,0,400);
   if(o[3]) S.queue.push({at:S.turn+o[3][0],key:o[3][1],from:{a:o[0],h:ev.h,turn:S.turn}});
   if(ev.next&&!(ev.key==="olymp2"&&k===2)) S.queue.push({at:S.turn+ev.next[0],key:ev.next[1],from:{a:o[0],h:ev.h,turn:S.turn}});
-  const lite=ev.gid?{gid:ev.gid,p:ev.p}:{h:ev.h};
+  const lite=ev.gid?{gid:ev.gid,p:ev.p}:ev.fpe?{fpe:ev.fpe,c:ev.c}:{h:ev.h};
+  if(ev.fpe){ if(eff._rel) fpRelAdd(ev.c,eff._rel); if(eff._unally) S.allies=S.allies.filter(x=>x!==ev.c); }
   S.log.push({ev:lite,a:o[0],r:o[2],f:!!ev.from,q:S.turn,tag:ev.tag||"",m:["p","t","e","l"].reduce((a,k)=>a+Math.abs(eff[k]||0),0)});
   S.last={ev:lite,a:o[0],r:o[2],cr:null};
   if(ev.tag==="crisis"){
     S.crisis.score+=eff._cs||0; S.crisis.step++;
     if(S.crisis.step>=4){
-      const C=CRISES[S.crisis.id], sc=S.crisis.score;
+      const C=CRISES[S.crisis.id], sc=S.crisis.score+(S.allies&&S.allies.length?1:0);
+      if(S.allies&&S.allies.length) S.notes.push({k:"fpAllyHelp",a:[S.allies]});
       if(sc>=3){S.m.p=clamp(S.m.p+6,0,100); S.ruler.feats.push({n:C.win,c:C.n,good:true}); S.last.cr={res:"win",n:C.win};}
       else if(sc<=0){S.m.p=clamp(S.m.p-6,1,100); S.m.e=clamp(S.m.e-4,1,100); S.ruler.feats.push({n:C.lose,c:C.n,good:false}); S.last.cr={res:"lose"};}
       else S.last.cr={res:"mid"};
@@ -903,9 +924,11 @@ function choose(k){
     }
   }
   S.turn++;
+  fpResolve();
   const R=S.ruler;
   if((S.turn-R.startTurn)%4===0){
     R.age++;
+    if(S.allies&&S.allies.length) S.m.e=clamp(S.m.e+1,1,CAP-1); // торговля с союзниками
     R.health=clamp(R.health-(R.age<60?ri(0,2):R.age<70?ri(1,3):R.age<80?ri(2,5):ri(3,7)),0,100);
     for(const a of S.adv){a.age++; const served=Math.round((S.turn-a.since)/4);
       if(a.role!=="opp"&&(a.age>=71||(served>=6&&Math.random()<0.15))) replaceAdv(a.role,"retire",served);
@@ -936,7 +959,7 @@ function vote(){
 }
 
 // ----- интерфейс -----
-const H=e=>e.gid?GTXT[LANG][e.gid](e.p).h:tr(e.h);
+const H=e=>e.fp?u("fpLogH",tr(e.c)):e.fpe?u(e.fpe+"H",tr(e.c)):e.gid?GTXT[LANG][e.gid](e.p).h:tr(e.h);
 function gaugeHTML(){
   return `<div class="gauges">${M.map(([k,n,s])=>{const v=S.m[k];const col=v<25||v>=90?"var(--bad)":v<40||v>=85?"var(--warn)":"var(--good)";
    return `<div class="g" data-k="${k}"><div class="top"><span class="name">${tr(n)}</span><span class="val">${v}</span></div><div class="bar"><i style="width:${v}%;background:${col}"></i></div><div class="sub">${tr(s)}</div></div>`}).join("")}</div>`;
@@ -962,7 +985,7 @@ function timelineHTML(){
   <div class="tl">${Array.from({length:TERM},(_,i)=>`<i class="${i<tt()?"done":i===tt()?"now":""}"></i>`).join("")}</div>
   ${G?`<div class="goalbar ${ok?"ok":""}"><span class="label">${u("goal")}</span><b>${tr(G.n)}</b><span>${G.now()} · ${u(ok?"goalOn":"goalNot")}</span></div>`:""}`;
 }
-function notesHTML(){ return S.notes.map(n=>`<div class="note">${u("note",tr(ROLES[n.role].n),n.why,n.served,u("age",n.age),n.role==="opp")}</div>`).join(""); }
+function notesHTML(){ return S.notes.map(n=>n.k?`<div class="note fpn">${u(n.k,...(n.a||[]).map(x=>Array.isArray(x)?x.map(tr).join(", "):tr(x)))}</div>`:`<div class="note">${u("note",tr(ROLES[n.role].n),n.why,n.served,u("age",n.age),n.role==="opp")}</div>`).join(""); }
 function lastHTML(){
   if(!S.last) return "";
   const L=S.last, cr=L.cr?(L.cr.res==="win"?u("crWin",tr(L.cr.n)):L.cr.res==="lose"?u("crLose"):u("crMid")):"";
@@ -973,7 +996,7 @@ function cardHTML(){
   let head;
   if(e.from) head=`<div class="echo"><span class="label">${u("echo")}</span><span>«${tr(e.from.a)}» · ${tr(e.from.h)} · ${u("ago",S.turn-e.from.turn)}</span></div>`;
   else if(e.tag==="crisis") head=`<div class="echo crisis"><span class="label">${u("crisis",S.crisis.step+1)}</span><span>${u("crisisSub",tr(CRISES[S.crisis.id].n))}</span></div>`;
-  else head=`<div class="hd"><span class="label">${e.tag==="election"?u("hElection"):e.tag==="era"?u("hEra",year()):e.tag===S.c.n?u("hCountry",tr(S.c.n)):e.tag==="health"?u("hHealth"):e.tag==="team"?u("hTeam"):e.tag==="react"?u("hReact"):e.tag==="goalev"?u("goal")+" · "+tr(goalObj().n):e.tag==="dilemma"?u("hDilemma"):u("hReport")}</span></div>`;
+  else head=`<div class="hd"><span class="label">${e.tag==="election"?u("hElection"):e.tag==="era"?u("hEra",year()):e.tag===S.c.n?u("hCountry",tr(S.c.n)):e.tag==="health"?u("hHealth"):e.tag==="team"?u("hTeam"):e.tag==="react"?u("hReact"):e.tag==="goalev"?u("goal")+" · "+tr(goalObj().n):e.tag==="dilemma"?u("hDilemma"):e.tag==="fp"?u("hFp"):u("hReport")}</span></div>`;
   const chips=i=>S.adv.filter(a=>S.recs?.[a.role]===i).map(a=>`<span class="chip c-${a.role}" title="${u("advises")}: ${tr(ROLES[a.role].n)}">${tr(ROLES[a.role].s)}</span>`).join("");
   return `<div class="card fade">${lastHTML()}${notesHTML()}${head}
    <h3>${T.h}</h3><p>${T.x}</p>
@@ -1069,6 +1092,171 @@ function successor(){
   newRuler(); S.ruler.age=ri(42,60); beginTerm(); render(); scrollTo({top:0});
 }
 
+
+// ===== Внешняя политика (со 2-го срока, через министра иностранных дел) =====
+ROLES.dip={n:"Министр иностранных дел",s:"Дипломатия",w:{e:.5,l:.4,p:.1}};
+ADV_EV.dip=["Министр иностранных дел грозит уйти","«Вы проводите внешнюю политику через мою голову», — говорит министр иностранных дел.",[["Дать больше свободы",{l:-2,_loy:{dip:35}},"Министр остаётся и теперь решает сам."],["Принять отставку",{e:-2,_rep:"dip"},"Новый министр уже в самолёте."]]];
+const FP_GROUPS=[["trade",["trade","aid"]],["press",["sanction","lift","recall"]],["covert",["meddle","spy"]],["ally",["allyAsk","unally"]]];
+const FPA={
+ trade:{n:"Торговое соглашение",d:"Экономика растёт, отношения улучшаются.",ok:"Соглашение подписано, экспорт растёт.",
+   can:c=>fpSanc(c)?"sanctioned":fpRel(c)<-30?["needRel",-30]:null,
+   run:c=>({eff:{e:fpC(c).gdp>=20?5:3},rel:15,r:"ok"})},
+ aid:{n:"Гуманитарная помощь",d:"Стоит денег, но сильно улучшает отношения.",ok:"Помощь дошла. Там нас благодарят.",
+   can:()=>null, run:()=>({eff:{t:-5,p:1},rel:25,r:"ok"})},
+ sanction:{n:"Ввести санкции",d:"Бьёт по отношениям и немного по вашей экономике.",ok:"Санкции введены. Импорт подорожал.",
+   hide:c=>fpSanc(c), can:c=>fpAlly(c)?"isAlly":null,
+   run:c=>{const hostile=fpRel(c)<-30; S.sanc.push(c); return {eff:{e:-2,l:1,p:hostile?2:-1},rel:-30,r:"ok"};}},
+ lift:{n:"Снять санкции",d:"Отношения теплеют, торговля возвращается.",ok:"Санкции сняты.",
+   hide:c=>!fpSanc(c), can:()=>null, run:c=>{S.sanc=S.sanc.filter(x=>x!==c); return {eff:{e:1},rel:15,r:"ok"};}},
+ recall:{n:"Отозвать посла",d:"Жёсткий жест: элиты оценят, отношения испортятся.",ok:"Посол отозван. Жест заметили все.",
+   can:()=>null, run:()=>({eff:{l:2},rel:-15,r:"ok"})},
+ meddle:{n:"Вмешаться в выборы",d:"Если получится, к власти придёт дружественное правительство. Если раскроют — скандал.",
+   ok:"К власти пришло дружественное нам правительство.",fail:"Операция провалилась: победил другой кандидат.",covert:true,
+   odds:c=>({s:clamp(Math.round(45+(fpLoy()-50)/2+(fpRel(c)>0?10:0)),15,85),x:clamp(Math.round(30-(fpLoy()-50)/4),10,50)}),
+   can:c=>fpFriend(c)?"isFriend":null,
+   run:c=>{const o=FPA.meddle.odds(c),win=Math.random()*100<o.s,caught=Math.random()*100<o.x; let eff={t:-4},rel=win?Math.max(0,40-fpRel(c)):-5;
+     if(win) {S.friend.push(c); eff.e=2;}
+     if(caught){eff={...eff,p:-6,l:-3,e:(eff.e||0)-2}; rel=-40-(win?fpRel(c):0); S.friend=S.friend.filter(x=>x!==c);}
+     return {eff,rel,r:win?"ok":"fail",caught};}},
+ spy:{n:"Шпионаж",d:"Технологии и контракты для вашей экономики. Агентов могут поймать.",
+   ok:"Агенты добыли технологии и контракты.",fail:"Агенты вернулись ни с чем.",covert:true,
+   odds:()=>({s:clamp(Math.round(65+(fpLoy()-50)/3),30,90),x:clamp(Math.round(20-(fpLoy()-50)/5),8,40)}),
+   can:()=>null,
+   run:c=>{const o=FPA.spy.odds(c),win=Math.random()*100<o.s,caught=Math.random()*100<o.x; let eff=win?{e:2,t:2}:{},rel=0;
+     if(caught){eff={...eff,p:-3}; rel=-25;}
+     return {eff,rel,r:win?"ok":"fail",caught};}},
+ allyAsk:{n:"Предложить союз",d:"Союзники помогают в кризисах, но иногда просят помощи сами.",ok:"Союз заключён.",fail:"Отказали: пока не готовы к союзу.",
+   hide:c=>fpAlly(c), odds:c=>({a:clamp(Math.round(30+fpRel(c)/2-10*S.allies.length),5,95)}),
+   can:c=>S.allies.length>=2?"maxAllies":fpSanc(c)?"sanctioned":fpRel(c)<40?["needRel",40]:null,
+   run:c=>{const win=Math.random()*100<FPA.allyAsk.odds(c).a; if(win) S.allies.push(c); return {eff:win?{l:2,p:2}:{},rel:win?10:-5,r:win?"ok":"fail"};}},
+ unally:{n:"Разорвать союз",d:"Освобождает от обязательств, но обижает партнёра.",ok:"Союз расторгнут.",
+   hide:c=>!fpAlly(c), can:()=>null, run:c=>{S.allies=S.allies.filter(x=>x!==c); return {eff:{l:-1},rel:-30,r:"ok"};}},
+};
+const fpC=n=>COUNTRIES.find(c=>c.n===n);
+const fpRel=c=>S.rel[c]||0, fpSanc=c=>S.sanc.includes(c), fpAlly=c=>S.allies.includes(c), fpFriend=c=>S.friend.includes(c);
+const fpLoy=()=>{const a=advBy("dip");return a?a.loy:50;};
+const fpOpen=()=>S.term>=2;
+function fpInit(){ S.rel=S.rel||{}; S.sanc=S.sanc||[]; S.allies=S.allies||[]; S.friend=S.friend||[]; S.fp=S.fp||null; S.fpReqAt=S.fpReqAt??-99; }
+function fpRelAdd(c,d){ S.rel[c]=clamp(fpRel(c)+d,-100,100); }
+function fpOrder(id,c){
+  S.fp={id,c,at:S.turn+2}; S.fpUI=null;
+  const a=advBy("dip"); if(a) a.loy=clamp(a.loy+(FPA[id].covert?-4:2),0,100);
+  track("fp_"+id,{country:c}); render(); scrollTo({top:0});
+}
+// результат поручения приходит через 2 квартала (вызывается после хода)
+function fpResolve(){
+  if(!S.fp||S.turn<S.fp.at) return;
+  const {id,c}=S.fp, A=FPA[id]; S.fp=null;
+  const res=A.run(c);
+  for(const k in res.eff) S.m[k]=clamp(S.m[k]+res.eff[k],1,CAP-1);
+  fpRelAdd(c,res.rel);
+  const txt=res.r==="ok"?A.ok:A.fail;
+  S.notes.push({k:"fpRes",a:[c,txt]}); if(res.caught) S.notes.push({k:"fpCaught"});
+  S.log.push({ev:{fp:1,c},a:A.n,r:res.caught?"Операцию раскрыли — международный скандал.":txt,q:S.turn,tag:"fp",m:Object.values(res.eff).reduce((a,v)=>a+Math.abs(v),0)+(res.caught?6:0)});
+}
+// события от других стран: просьбы союзников и ответные пошлины
+function fpEvent(){
+  if(S.turn-S.fpReqAt<8) return null;
+  if(S.allies.length&&Math.random()<0.07){ S.fpReqAt=S.turn; const c=S.allies[Math.floor(Math.random()*S.allies.length)];
+    return {tag:"fp",fpe:"ally",c,o:[["Отправить помощь",{t:-6,_rel:10},"Союзник благодарен."],["Отказать союзнику",{l:-2,_unally:1,_rel:-30},"Союз распался."]]}; }
+  const foes=Object.keys(S.rel).filter(c=>S.rel[c]<=-50&&c!==S.c.n);
+  if(foes.length&&Math.random()<0.06){ S.fpReqAt=S.turn; const c=foes[Math.floor(Math.random()*foes.length)];
+    return {tag:"fp",fpe:"host",c,o:[["Ответить тем же",{e:-2,l:2,_rel:-10},"Торговая война набирает обороты."],["Пойти на уступки",{e:-1,p:-2,_rel:15},"Пошлины отменили, но уступку заметили."]]}; }
+  return null;
+}
+function fpButton(){
+  if(S.phase!=="play") return "";
+  if(!fpOpen()) return `<div class="fprow"><button class="btn ghost fpb" disabled>${u("fpLocked")}</button></div>`;
+  const busy=S.fp?` · ${u("fpBusyShort",S.fp.at-S.turn)}`:"";
+  return `<div class="fprow"><button class="btn ghost fpb" id="fpopen">${u("fpBtn")}${busy}</button></div>`;
+}
+function fpHTML(){
+  const others=COUNTRIES.filter(c=>c.n!==S.c.n).map(c=>c.n).sort((a,b)=>tr(a).localeCompare(tr(b)));
+  const sel=S.fpUI.c||others[0]; S.fpUI.c=sel;
+  const rel=fpRel(sel), busy=!!S.fp;
+  const tags=[fpAlly(sel)&&u("fpAlly"),fpSanc(sel)&&u("fpSanc"),fpFriend(sel)&&u("fpFriend")].filter(Boolean);
+  const reason=r=>!r?"":Array.isArray(r)?u(r[0],r[1]):u(r);
+  const acts=FP_GROUPS.map(([g,ids])=>{
+    const rows=ids.filter(id=>!(FPA[id].hide&&FPA[id].hide(sel))).map(id=>{const A=FPA[id],why=busy?u("fpBusyNo"):reason(A.can(sel));
+      const od=A.odds?A.odds(sel):null;
+      const risk=od?(od.a!=null?u("fpChance",od.a):u("fpRisk",od.s,od.x)):"";
+      return `<button class="opt fpa" data-a="${id}" ${why?"disabled":""}><span class="t"><b>${tr(A.n)}</b><span class="gd">${tr(A.d)}</span>${risk?`<span class="fprisk">${risk}</span>`:""}${why?`<span class="fpwhy">${why}</span>`:""}</span></button>`;}).join("");
+    return `<div class="fpg"><span class="label">${u("fpGrp")[g]}</span>${rows}</div>`;}).join("");
+  return `<div class="card fade fp">
+   <div class="hd"><span class="label">${u("fpTitle")}</span></div>
+   <h3>${u("fpH")}</h3>
+   <p>${S.fp?u("fpBusy",tr(FPA[S.fp.id].n),tr(S.fp.c),S.fp.at-S.turn):u("fpReady")}</p>
+   <label class="fpsel"><span class="label">${u("fpCountry")}</span>
+    <select id="fpc">${others.map(n=>`<option value="${n}" ${n===sel?"selected":""}>${tr(n)}${fpAlly(n)?" ★":""} · ${fpRel(n)>0?"+":""}${fpRel(n)}</option>`).join("")}</select></label>
+   <div class="fpstat"><span class="label">${u("fpRel")}</span><div class="relbar"><i style="left:${rel<0?50+rel/2:50}%;width:${Math.abs(rel)/2}%;background:${rel<0?"var(--bad)":"var(--good)"}"></i></div><b>${rel>0?"+":""}${rel}</b>${tags.map(t=>`<span class="chip">${t}</span>`).join("")}</div>
+   ${acts}
+   <div class="row"><button class="btn ghost" id="fpclose">${u("fpClose")}</button></div>
+  </div>`;
+}
+function fpBind(){
+  const o=document.getElementById("fpopen"); if(o) o.onclick=()=>{S.fpUI={c:S.fpUI?.c||null}; render(); scrollTo({top:0});};
+  if(!S.fpUI) return;
+  const s=document.getElementById("fpc"); if(s) s.onchange=()=>{S.fpUI.c=s.value; render();};
+  const cl=document.getElementById("fpclose"); if(cl) cl.onclick=()=>{S.fpUI=null; render();};
+  document.querySelectorAll(".fpa").forEach(b=>b.onclick=()=>fpOrder(b.dataset.a,S.fpUI.c));
+}
+Object.assign(U.ru,{fpBtn:"Внешняя политика",fpLocked:"Внешняя политика — со 2-го срока",fpBusyShort:q=>`МИД: ещё ${q} кв.`,fpTitle:"Министерство иностранных дел",fpH:"Поручение министру",
+ fpReady:"Министр иностранных дел выполняет одно поручение за раз. Результат придёт через 2 квартала, а сами вы продолжаете править.",
+ fpBusy:(a,c,q)=>`Министр занят: «${a}» — ${c}. Результат через ${q} кв.`,fpBusyNo:"Министр занят другим поручением",fpCountry:"Страна",fpRel:"Отношения",
+ fpAlly:"Союзник",fpSanc:"Под санкциями",fpFriend:"Дружественное правительство",fpGrp:{trade:"Торговля и помощь",press:"Давление",covert:"Тайные операции",ally:"Союзы"},
+ fpRisk:(s,x)=>`Успех ~${s}% · риск разоблачения ~${x}%`,fpChance:a=>`Шанс согласия ~${a}%`,fpClose:"Вернуться к делам",
+ needRel:n=>`Нужны отношения не ниже ${n}`,maxAllies:"Не больше двух союзников",sanctioned:"Сначала снимите санкции",isAlly:"Нельзя: это ваш союзник",isFriend:"Там уже дружественное правительство",
+ fpLogH:c=>`Внешняя политика: ${c}`,hFp:"Внешняя политика",fpRes:(c,r)=>`Доклад МИД (${c}): ${r}`,fpCaught:"Операцию раскрыли — международный скандал.",
+ fpNew:"Начался второй срок: в команду вошёл министр иностранных дел. Внешняя политика открыта.",fpAllyHelp:c=>`Союзники помогли пережить кризис: ${c}.`,
+ allyH:c=>`${c} просит поддержки`,allyX:c=>`Ваш союзник в трудном положении и ждёт помощи. Откажете — союз распадётся. Страна: ${c}.`,
+ hostH:c=>`Пошлины против вас: ${c}`,hostX:c=>`После ссоры ваш экспорт обложили пошлинами. Инициатор — ${c}.`});
+Object.assign(U.en,{fpBtn:"Foreign policy",fpLocked:"Foreign policy unlocks in term 2",fpBusyShort:q=>`Foreign ministry: ${q} more quarter(s)`,fpTitle:"Ministry of Foreign Affairs",fpH:"Instructions for the foreign minister",
+ fpReady:"The foreign minister handles one task at a time. Results arrive in 2 quarters, and you keep governing meanwhile.",
+ fpBusy:(a,c,q)=>`The minister is busy: “${a}” — ${c}. Results in ${q} quarter(s).`,fpBusyNo:"The minister is busy with another task",fpCountry:"Country",fpRel:"Relations",
+ fpAlly:"Ally",fpSanc:"Under sanctions",fpFriend:"Friendly government",fpGrp:{trade:"Trade and aid",press:"Pressure",covert:"Covert operations",ally:"Alliances"},
+ fpRisk:(s,x)=>`Success ~${s}% · exposure risk ~${x}%`,fpChance:a=>`Chance they agree ~${a}%`,fpClose:"Back to work",
+ needRel:n=>`Requires relations of at least ${n}`,maxAllies:"Two allies at most",sanctioned:"Lift the sanctions first",isAlly:"Not possible: this is your ally",isFriend:"There's already a friendly government",
+ fpLogH:c=>`Foreign policy: ${c}`,hFp:"Foreign policy",fpRes:(c,r)=>`Foreign ministry report (${c}): ${r}`,fpCaught:"The operation was exposed: an international scandal.",
+ fpNew:"Your second term has begun: a foreign minister joined the team. Foreign policy is now open.",fpAllyHelp:c=>`Your allies helped you through the crisis: ${c}.`,
+ allyH:c=>`${c} asks for support`,allyX:c=>`Your ally ${c} is in trouble and expects help. Refuse, and the alliance will fall apart.`,
+ hostH:c=>`${c} imposes tariffs on you`,hostX:c=>`After the falling-out, ${c} has slapped tariffs on your exports.`});
+Object.assign(U.zh,{fpBtn:"外交政策",fpLocked:"第二届任期解锁外交政策",fpBusyShort:q=>`外交部：还需${q}个季度`,fpTitle:"外交部",fpH:"给外交部长的指示",
+ fpReady:"外交部长一次只执行一项任务，结果将在两个季度后揭晓，期间你照常执政。",
+ fpBusy:(a,c,q)=>`部长正忙于：“${a}”——${c}。还需${q}个季度。`,fpBusyNo:"部长正忙于其他任务",fpCountry:"国家",fpRel:"关系",
+ fpAlly:"盟友",fpSanc:"受制裁",fpFriend:"友好政府",fpGrp:{trade:"贸易与援助",press:"施压",covert:"秘密行动",ally:"同盟"},
+ fpRisk:(s,x)=>`成功率约${s}% · 暴露风险约${x}%`,fpChance:a=>`对方同意的概率约${a}%`,fpClose:"返回",
+ needRel:n=>`需要关系不低于${n}`,maxAllies:"最多两个盟友",sanctioned:"请先解除制裁",isAlly:"不可行：这是你的盟友",isFriend:"那里已是友好政府",
+ fpLogH:c=>`外交政策：${c}`,hFp:"外交政策",fpRes:(c,r)=>`外交部报告（${c}）：${r}`,fpCaught:"行动暴露——引发国际丑闻。",
+ fpNew:"第二届任期开始：外交部长加入了团队，外交政策已解锁。",fpAllyHelp:c=>`盟友帮助你度过了危机：${c}。`,
+ allyH:c=>`${c}请求支援`,allyX:c=>`盟友${c}陷入困境，期待你的援助。若拒绝，同盟将破裂。`,
+ hostH:c=>`${c}对你国加征关税`,hostX:c=>`关系恶化后，${c}对你国出口商品加征关税。`});
+Object.assign(DICT.en,{"Министр иностранных дел":"Foreign minister","Дипломатия":"Diplomacy","Министр иностранных дел грозит уйти":"The foreign minister threatens to quit","«Вы проводите внешнюю политику через мою голову», — говорит министр иностранных дел.":"“You're running foreign policy over my head,” says the foreign minister.","Дать больше свободы":"Give him more freedom","Министр остаётся и теперь решает сам.":"The minister stays and now calls the shots.","Новый министр уже в самолёте.":"A new minister is already on the plane.",
+ "Торговое соглашение":"Trade agreement","Экономика растёт, отношения улучшаются.":"Boosts the economy and relations.","Соглашение подписано, экспорт растёт.":"The deal is signed and exports are growing.",
+ "Гуманитарная помощь":"Humanitarian aid","Стоит денег, но сильно улучшает отношения.":"Costs money but greatly improves relations.","Помощь дошла. Там нас благодарят.":"The aid arrived. They're grateful.",
+ "Ввести санкции":"Impose sanctions","Бьёт по отношениям и немного по вашей экономике.":"Hurts relations and slightly your own economy.","Санкции введены. Импорт подорожал.":"Sanctions are in place. Imports got pricier.",
+ "Снять санкции":"Lift sanctions","Отношения теплеют, торговля возвращается.":"Relations warm up and trade returns.","Санкции сняты.":"Sanctions lifted.",
+ "Отозвать посла":"Recall the ambassador","Жёсткий жест: элиты оценят, отношения испортятся.":"A tough gesture: the elites approve, relations sour.","Посол отозван. Жест заметили все.":"The ambassador was recalled. Everyone noticed.",
+ "Вмешаться в выборы":"Meddle in the election","Если получится, к власти придёт дружественное правительство. Если раскроют — скандал.":"If it works, a friendly government takes power. If exposed, it's a scandal.","К власти пришло дружественное нам правительство.":"A government friendly to us has taken power.","Операция провалилась: победил другой кандидат.":"The operation failed: another candidate won.",
+ "Шпионаж":"Espionage","Технологии и контракты для вашей экономики. Агентов могут поймать.":"Technology and contracts for your economy. Agents may get caught.","Агенты добыли технологии и контракты.":"Our agents obtained technology and contracts.","Агенты вернулись ни с чем.":"Our agents came back empty-handed.",
+ "Операцию раскрыли — международный скандал.":"The operation was exposed: an international scandal.",
+ "Предложить союз":"Propose an alliance","Союзники помогают в кризисах, но иногда просят помощи сами.":"Allies help in crises, but sometimes ask for help too.","Союз заключён.":"The alliance is sealed.","Отказали: пока не готовы к союзу.":"They declined: not ready for an alliance yet.",
+ "Разорвать союз":"End the alliance","Освобождает от обязательств, но обижает партнёра.":"Frees you from obligations but offends the partner.","Союз расторгнут.":"The alliance is over.",
+ "Отправить помощь":"Send help","Союзник благодарен.":"Your ally is grateful.","Отказать союзнику":"Turn your ally down","Союз распался.":"The alliance fell apart.",
+ "Ответить тем же":"Retaliate in kind","Пойти на уступки":"Make concessions","Пошлины отменили, но уступку заметили.":"The tariffs were dropped, but the concession was noticed."});
+Object.assign(DICT.zh,{"Министр иностранных дел":"外交部长","Дипломатия":"外交","Министр иностранных дел грозит уйти":"外交部长威胁辞职","«Вы проводите внешнюю политику через мою голову», — говорит министр иностранных дел.":"外交部长说：“你绕过我搞外交。”","Дать больше свободы":"给他更多自主权","Министр остаётся и теперь решает сам.":"部长留下了，现在由他做主。","Новый министр уже в самолёте.":"新部长已经在飞机上了。",
+ "Торговое соглашение":"贸易协定","Экономика растёт, отношения улучшаются.":"促进经济，改善关系。","Соглашение подписано, экспорт растёт.":"协定已签署，出口正在增长。",
+ "Гуманитарная помощь":"人道主义援助","Стоит денег, но сильно улучшает отношения.":"需要花钱，但能大幅改善关系。","Помощь дошла. Там нас благодарят.":"援助已送达，对方十分感激。",
+ "Ввести санкции":"实施制裁","Бьёт по отношениям и немного по вашей экономике.":"损害关系，也会略微影响本国经济。","Санкции введены. Импорт подорожал.":"制裁已实施，进口商品涨价了。",
+ "Снять санкции":"解除制裁","Отношения теплеют, торговля возвращается.":"关系回暖，贸易恢复。","Санкции сняты.":"制裁已解除。",
+ "Отозвать посла":"召回大使","Жёсткий жест: элиты оценят, отношения испортятся.":"强硬姿态：精英赞赏，关系恶化。","Посол отозван. Жест заметили все.":"大使已召回，所有人都注意到了。",
+ "Вмешаться в выборы":"干预选举","Если получится, к власти придёт дружественное правительство. Если раскроют — скандал.":"若成功，友好政府将上台；若暴露，将引发丑闻。","К власти пришло дружественное нам правительство.":"对我们友好的政府上台了。","Операция провалилась: победил другой кандидат.":"行动失败：另一位候选人获胜。",
+ "Шпионаж":"间谍活动","Технологии и контракты для вашей экономики. Агентов могут поймать.":"为本国经济获取技术和合同，特工可能被抓。","Агенты добыли технологии и контракты.":"特工获取了技术和合同。","Агенты вернулись ни с чем.":"特工一无所获。",
+ "Операцию раскрыли — международный скандал.":"行动暴露——引发国际丑闻。",
+ "Предложить союз":"提议结盟","Союзники помогают в кризисах, но иногда просят помощи сами.":"盟友会在危机中援助你，但有时也会向你求助。","Союз заключён.":"同盟已缔结。","Отказали: пока не готовы к союзу.":"对方拒绝：暂时还没准备好结盟。",
+ "Разорвать союз":"解除同盟","Освобождает от обязательств, но обижает партнёра.":"摆脱义务，但会得罪对方。","Союз расторгнут.":"同盟已解除。",
+ "Отправить помощь":"派出援助","Союзник благодарен.":"盟友很感激。","Отказать союзнику":"拒绝盟友","Союз распался.":"同盟破裂了。",
+ "Ответить тем же":"以牙还牙","Пойти на уступки":"作出让步","Пошлины отменили, но уступку заметили.":"关税取消了，但让步也被看在眼里。"});
+
 function render(){
   const app=$("#app");
   applyLang();
@@ -1094,7 +1282,7 @@ function render(){
       else{ $("#rollsub").textContent=u("rollsub",fmtPop(S.c.pop),u("age",S.ruler.age)); setTimeout(()=>{S.phase="goal";render()},1300); }
     }; tick(); return;
   }
-  const main=S.phase==="end"?endHTML():S.phase==="goal"?goalHTML():timelineHTML()+cardHTML();
+  const main=S.phase==="end"?endHTML():S.phase==="goal"?goalHTML():timelineHTML()+(S.fpUI?fpHTML():fpButton()+cardHTML());
   app.innerHTML=langBar()+dossierHTML()+gaugeHTML()+main+teamHTML()+`<p class="foot">${u("foot")}</p>`;
   bindLang();
   if(S.phase==="end"){
@@ -1104,6 +1292,7 @@ function render(){
     on("rewrite",()=>{S.forever=true; S.m.p=clamp(S.m.p-12,1,100); S.m.l=clamp(S.m.l+8,0,CAP-3); nextTerm();});
     return; }
   if(S.phase==="goal"){ document.querySelectorAll(".opt.goal").forEach(b=>b.onclick=()=>setGoal(b.dataset.g)); return; }
+  fpBind(); if(S.fpUI) return;
   document.querySelectorAll(".opt").forEach(b=>{
     const i=+b.dataset.i, eff=S.ev.o[i][1];
     const hl=on=>document.querySelectorAll(".g").forEach(g=>g.classList.toggle("hint",on&&!!eff[g.dataset.k]));
@@ -1115,7 +1304,7 @@ function render(){
 function bindLang(){ document.querySelectorAll(".lg").forEach(b=>b.onclick=()=>setLang(b.dataset.lang)); }
 
 window.claude?.hot?.snapshot?.(()=>({S}));
-const start=d=>{ if(d&&d.S&&d.S.ruler&&d.S.adv&&d.S.log&&(!d.S.log.length||d.S.log[0].ev)){S=d.S; S.reactAt=S.reactAt||{}; if(S.phase==="roll")S.phase="goal";} render(); };
+const start=d=>{ if(d&&d.S&&d.S.ruler&&d.S.adv&&d.S.log&&(!d.S.log.length||d.S.log[0].ev)){S=d.S; S.reactAt=S.reactAt||{}; fpInit(); if(S.phase==="roll")S.phase="goal";} render(); };
 window.claude?.hot?.ready ? window.claude.hot.ready(start) : start(window.claude?.hot?.data ?? {});
 
 </script>
