@@ -169,6 +169,14 @@ body.cjk .ph,body.cjk .mast b,body.cjk .stories h4{letter-spacing:0}
 .chip{font-family:var(--mono);font-size:10.5px;padding:1px 6px;border-radius:10px;border:1px solid var(--line);background:var(--paper);color:var(--muted);white-space:nowrap}
 .adv[data-r="opp"]{border-style:dashed}
 .chip.c-opp{border-style:dashed}
+.dists{display:flex;flex-direction:column;gap:6px}
+.dgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px}
+.dist{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:6px 9px;display:grid;grid-template-columns:1fr auto;gap:2px 6px;align-items:baseline;min-width:0}
+.dist span{font-size:12px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dist b{font-size:12.5px;font-variant-numeric:tabular-nums}
+.dist .bar{grid-column:1/-1}
+.goalbar.plan{border-color:var(--line)}
+.where{margin:-4px 0 4px}
 .goalbar{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;border:1.5px dashed var(--line);border-radius:8px;padding:8px 12px;font-size:13.5px;font-variant-numeric:tabular-nums}
 .goalbar b{font-weight:600}
 .goalbar>span:nth-of-type(2){color:var(--bad);margin-left:auto}
@@ -797,6 +805,7 @@ const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const rnd=(a,b)=>a+Math.random()*(b-a);
 const ri=(a,b)=>Math.floor(rnd(a,b+1));
 const tt=()=>S.turn-S.termStart;
+const termLen=()=>S.vrio?VRIO_LEN:TERM;
 const hasElection=()=>MODE==="gov"||S.term!==2||S.forever;
 const year=()=>START_YEAR+Math.floor(S.turn/4);
 const goalObj=()=>GOALS.find(g=>g.id===S.goal);
@@ -844,6 +853,7 @@ function newGame(){
      crisis:null,lastCrisis:0,crisisSeen:[],rulers:[],adv:[],reactAt:{},goalEvTerm:0,mode:MODE,phase:"roll"};
   newRuler(); fpInit();
   S.adv=["fin","gen","soc","opp"].map(newAdv);
+  if(MODE==="gov") govInit();
   beginTerm(); S.phase="roll";
   track("start",{country:S.c.n,lang:LANG,mode:MODE});
   render();
@@ -852,23 +862,25 @@ function beginTerm(){
   S.termStart=S.turn; S.start=snap(); S.builds=0; S.last=null; S.why=null; S.fpUI=null;
   if(MODE!=="gov"&&S.term>=2&&!advBy("dip")){ S.adv.push(newAdv("dip")); S.notes.push({k:"fpNew"}); }
   const pool=GOALS.filter(g=>!g.av||g.av()).sort(()=>Math.random()-.5);
-  S.offer=pool.slice(0,3).map(g=>g.id); S.goal=null; S.phase="goal";
+  S.offer=S.vrio?["vrio"]:pool.slice(0,3).map(g=>g.id); S.goal=null; S.phase="goal";
 }
-function setGoal(id){S.notes=[]; S.goal=id; S.phase="play"; S.ev=pick(); render();}
+function setGoal(id){S.notes=[]; S.goal=id; S.phase="play"; if(MODE==="gov") assignPlan(); S.ev=pick(); render();}
 
 // ----- выбор следующей карточки -----
-function eligible(e){ if(e.y&&year()<e.y) return false; return !e.tag||e.tag==="era"||e.tag==="dilemma"||e.tag===S.c.n||S.c.tags.includes(e.tag)||(e.tag==="forever"&&S.forever);}
+function eligible(e){ if(e.succ&&S.ruler.no<2) return false; if(e.bio&&e.bio!==S.ruler.bio) return false; if(e.y&&year()<e.y) return false; return !e.tag||e.tag==="era"||e.tag==="dilemma"||e.tag===S.c.n||S.c.tags.includes(e.tag)||(e.tag==="forever"&&S.forever);}
 function pick(){ const e=pickRaw(); S.recs=advice(e); return e; }
 function genEvent(){
-  const ids=Object.keys(GEN).filter(g=>MODE==="gov"?["reg","dis","cmp"].includes(g):g!=="cmp");
+  const ids=Object.keys(GEN).filter(g=>MODE==="gov"?["reg","dis","cmp"].concat(NEIGH[S.c.n]?["nbr"]:[]).includes(g):!["cmp","nbr"].includes(g));
   for(let i=0;i<20;i++){const gid=ids[Math.floor(Math.random()*ids.length)], e=GEN[gid](); if(!S.genSeen.includes(e.key)){S.genSeen.push(e.key); return {...e,gid,tag:"gen"};}}
   return {...GEN.reg(),gid:"reg",tag:"gen"};
 }
 function pickRaw(){
   if(S.crisis){const C=CRISES[S.crisis.id],st=C.steps[S.crisis.step]; return {tag:"crisis",h:st[0],x:st[1],o:st[2]};}
   const EL=MODE==="gov"?GOV_ELECTION:ELECTION;
-  if(hasElection()&&tt()===12) return EL[0];
-  if(hasElection()&&tt()===14) return EL[1+Math.floor(Math.random()*2)];
+  if(S.handover&&S.handover.length) return S.handover.shift();
+  if(MODE==="gov"){ const ge=govScheduled(); if(ge) return ge; }
+  if(hasElection()&&tt()===termLen()-4) return EL[0];
+  if(hasElection()&&tt()===termLen()-2) return EL[1+Math.floor(Math.random()*2)];
   fpInit(); { const fe=fpEvent(); if(fe) return fe; }
   const angry=S.adv.find(a=>a.loy<=25&&a.cool<=S.turn);
   if(angry){angry.cool=S.turn+8; const E=(MODE==="gov"&&ADV_EV_GOV[angry.role])||ADV_EV[angry.role]; return {tag:"team",h:E[0],x:E[1],o:E[2]};}
@@ -902,14 +914,14 @@ function pickRaw(){
   const w=pool.map(x=>MODE==="gov"&&x.e.tag===S.c.n?6:x.e.tag&&!["forever","dilemma"].includes(x.e.tag)?2.2:1); let r=Math.random()*w.reduce((a,b)=>a+b,0);
   let x=pool[pool.length-1];
   for(let k=0;k<pool.length;k++){r-=w[k]; if(r<=0){x=pool[k];break}}
-  S.usedAt[x.i]=S.turn; return x.e;
+  S.usedAt[x.i]=S.turn; return (MODE==="gov"&&x.e.loc&&S.dist)?{...x.e,dist:pickOne(S.dist).n}:x.e;
 }
 
 // ----- ход -----
 function choose(k){
   const ev=S.ev,o=ev.o[k],eff=o[1],frag=S.c.tags.includes("fragile");
   const before={...S.m}; S.notes=[];
-  for(const [key] of M){ let v=eff[key]||0; if(v<0&&frag) v=Math.round(v*1.25); if(v<0&&S.term>3) v=Math.round(v*Math.min(1.5,1+0.06*(S.term-3))); S.m[key]+=v; }
+  for(const [key] of M){ let v=eff[key]||0; if(v<0&&frag) v=Math.round(v*1.25); if(MODE==="gov"&&key==="p"&&v>0) v=Math.round(v*(S.m.p>=82?0.35:S.m.p>=70?0.6:1)); if(v<0&&S.term>3) v=Math.round(v*Math.min(1.5,1+0.06*(S.term-3))); S.m[key]+=v; }
   if(eff._h) S.ruler.health=clamp(S.ruler.health+eff._h,0,100);
   if(eff._loy) for(const r in eff._loy){const a=advBy(r); a.loy=clamp(a.loy+eff._loy[r],0,100);}
   if(eff._rep) replaceAdv(eff._rep,eff._rep==="opp"?"arrest":"fired");
@@ -928,6 +940,7 @@ function choose(k){
   S.debt=clamp(S.debt+(before.t-S.m.t)*0.6+(50-S.m.t)/40,0,400);
   if(o[3]) S.queue.push({at:S.turn+o[3][0],key:o[3][1],from:{a:o[0],h:ev.h,turn:S.turn}});
   if(ev.next&&!(ev.key==="olymp2"&&k===2)) S.queue.push({at:S.turn+ev.next[0],key:ev.next[1],from:{a:o[0],h:ev.h,turn:S.turn}});
+  if(MODE==="gov") govAfterChoose(ev,eff);
   const lite=ev.gid?{gid:ev.gid,p:ev.p}:ev.fpe?{fpe:ev.fpe,c:ev.c}:{h:ev.h};
   if(ev.fpe){ if(eff._rel) fpRelAdd(ev.c,eff._rel); if(eff._unally) S.allies=S.allies.filter(x=>x!==ev.c); }
   S.log.push({ev:lite,a:o[0],r:o[2],f:!!ev.from,q:S.turn,tag:ev.tag||"",m:["p","t","e","l"].reduce((a,k)=>a+Math.abs(eff[k]||0),0)});
@@ -960,7 +973,7 @@ function choose(k){
   else if(R.health<=0||Math.random()<q){S.phase="end";S.why="death";}
   else if(dead){S.phase="end";S.why=dead[0];}
   else if(M.some(([key])=>S.m[key]>=CAP)){S.phase="end";S.why=OVER[M.find(([key])=>S.m[key]>=CAP)[0]];}
-  else if(tt()>=TERM){S.phase="end";S.why="term"; termResult();}
+  else if(tt()>=termLen()){S.phase="end";S.why="term"; termResult();}
   else S.ev=pick();
   if(S.phase==="end"&&S.why==="term") track("term_end",{country:S.c.n,term:S.term});
   render();
@@ -971,18 +984,19 @@ function termResult(){
   S.ruler.goals.push({n:G.n,ok});
   const eff=ok?G.win:GOAL_FAIL; S.goalEff=eff;
   for(const k in eff) S.m[k]=clamp(S.m[k]+eff[k],5,CAP-3);  // награда не может сразу вызвать финал
+  if(MODE==="gov") planResult();
 }
 const effStr=eff=>Object.entries(eff).map(([k,v])=>tr(M.find(x=>x[0]===k)[1])+" "+(v>0?"+":"−")+Math.abs(v)).join(" · ");
 function vote(){
   const g=(S.gdp/S.start.gdp-1)*100, G=goalObj();
-  return clamp(54-4*(S.term-1)+0.5*(S.m.p-50)+0.4*(S.m.p-S.start.p)+0.25*(S.m.e-S.start.e)+1.5*clamp(g,-15,6)+(G?(G.ok()?6:-6):0)+(advBy("opp").loy-50)*0.06,5,95);
+  return clamp(54-4*(S.term-1)+0.5*(S.m.p-50)+0.4*(S.m.p-S.start.p)+0.25*(S.m.e-S.start.e)+1.5*clamp(g,-15,6)+(G?(G.ok()?6:-6):0)+(advBy("opp").loy-50)*0.06+(MODE==="gov"?(S.dist?(distAvg()-S.m.p)*0.3:0)-3-(S.m.l<35?6:0)-(S.term>=3?2:0):0),5,95);
 }
 
 // ----- интерфейс -----
 const H=e=>e.fp?u("fpLogH",tr(e.c)):e.fpe?u(e.fpe+"H",tr(e.c)):e.gid?(MODE==="gov"&&GTXT_GOV[e.gid]?GTXT_GOV[e.gid]:GTXT[LANG][e.gid])(e.p).h:tr(e.h);
 function gaugeHTML(){
   return `<div class="gauges">${M.map(([k,n,s])=>{const v=S.m[k];const col=v<25||v>=90?"var(--bad)":v<40||v>=85?"var(--warn)":"var(--good)";
-   return `<div class="g" data-k="${k}"><div class="top"><span class="name">${tr(n)}</span><span class="val">${v}</span></div><div class="bar"><i style="width:${v}%;background:${col}"></i></div><div class="sub">${tr(s)}</div></div>`}).join("")}</div>`;
+   return `<div class="g" data-k="${k}"><div class="top"><span class="name">${tr(n)}</span><span class="val">${v}</span></div><div class="bar"><i style="width:${v}%;background:${col}"></i></div><div class="sub">${tr(s)}${MODE==="gov"&&k==="p"&&v>=70?" · ожидания растут":""}</div></div>`}).join("")}</div>`;
 }
 function teamHTML(){
   return `<div class="team">${S.adv.map(a=>{const R=ROLES[a.role],v=a.loy,col=v<20?"var(--bad)":v<40?"var(--warn)":"var(--good)",served=Math.floor((S.turn-a.since)/4);
@@ -994,16 +1008,16 @@ function dossierHTML(){
   <div class="who"><div class="label">${R.no>1?u("rulerNo",R.no):u("you")} · ${tr(c.r)}</div><h2>${tr(c.n)}</h2><div class="label" style="margin-top:6px">${c.tags.map(t=>TAGNAMES[t]).filter(Boolean).map(tr).join(" · ")||tr("обычная страна")}</div></div>
   <div class="facts">
    <div><span>${u("fRuler")}</span><b>${u("age",R.age)}</b> <span class="delta ${R.health<35?"down":""}" style="display:inline">${u("health",healthWord(R.health))}</span></div>
-   <div><span>${u("fPop")}</span><b>${fmtPop(c.pop)}</b></div>
+   ${MODE==="gov"&&R.bio?`<div><span>Биография</span><b>${BIO[R.bio].n}</b></div>`:""}<div><span>${u("fPop")}</span><b>${fmtPop(c.pop)}</b></div>
    <div><span>${u("fGdp")}</span><b>${fmtGdp(S.gdp)}</b>${tt()?`<span class="delta ${dg>=0?"up":"down"}" style="display:inline">${sgn(dg,1)}%</span>`:""}</div>
    <div><span>${u("fDebt")}</span><b>${Math.round(S.debt)}${u("debtUnit")}</b>${tt()&&Math.round(dd)?`<span class="delta ${dd<=0?"up":"down"}" style="display:inline">${sgn(dd,0)}</span>`:""}</div>
   </div></div>`;
 }
 function timelineHTML(){
   const G=goalObj(), ok=G&&G.ok();
-  return `<div class="tlrow"><span class="label">${u("termLabel",S.term,Math.floor(tt()/4)+1,tt()%4+1,year())}</span><span class="label">${hasElection()?`${u("forecast")}${LANG==="zh"?"：":": "}<b style="color:${vote()>=50?"var(--good)":"var(--bad)"}">${Math.round(vote())}%</b>`:u("lastTerm")}</span></div>
-  <div class="tl">${Array.from({length:TERM},(_,i)=>`<i class="${i<tt()?"done":i===tt()?"now":""}"></i>`).join("")}</div>
-  ${G?`<div class="goalbar ${ok?"ok":""}"><span class="label">${u("goal")}</span><b>${tr(G.n)}</b><span>${G.now()} · ${u(ok?"goalOn":"goalNot")}</span></div>`:""}`;
+  return `<div class="tlrow"><span class="label">${S.vrio?`Врио губернатора · ${Math.floor(tt()/4)+1}-й год · ${tt()%4+1} кв. · ${year()}`:u("termLabel",S.term,Math.floor(tt()/4)+1,tt()%4+1,year())}</span><span class="label">${hasElection()?`${u("forecast")}${LANG==="zh"?"：":": "}<b style="color:${vote()>=50?"var(--good)":"var(--bad)"}">${Math.round(vote())}%</b>${MODE==="gov"&&S.m.l<35?` · <span style="color:var(--bad)">Москва не поддерживает</span>`:""}`:u("lastTerm")}</span></div>
+  <div class="tl">${Array.from({length:termLen()},(_,i)=>`<i class="${i<tt()?"done":i===tt()?"now":""}"></i>`).join("")}</div>
+  ${G?`<div class="goalbar ${ok?"ok":""}"><span class="label">${u("goal")}</span><b>${tr(G.n)}</b><span>${G.now()} · ${u(ok?"goalOn":"goalNot")}</span></div>`:""}${MODE==="gov"?planBarHTML()+distHTML():""}`;
 }
 function notesHTML(){ return S.notes.map(n=>n.k?`<div class="note fpn">${u(n.k,...(n.a||[]).map(x=>Array.isArray(x)?x.map(tr).join(", "):tr(x)))}</div>`:`<div class="note">${u("note",tr(ROLES[n.role].n),n.why,n.served,u("age",n.age),n.role==="opp")}</div>`).join(""); }
 function lastHTML(){
@@ -1016,17 +1030,17 @@ function cardHTML(){
   let head;
   if(e.from) head=`<div class="echo"><span class="label">${u("echo")}</span><span>«${tr(e.from.a)}» · ${tr(e.from.h)} · ${u("ago",S.turn-e.from.turn)}</span></div>`;
   else if(e.tag==="crisis") head=`<div class="echo crisis"><span class="label">${u("crisis",S.crisis.step+1)}</span><span>${u("crisisSub",tr(CRISES[S.crisis.id].n))}</span></div>`;
-  else head=`<div class="hd"><span class="label">${e.tag==="election"?u("hElection"):e.tag==="era"?u("hEra",year()):e.tag===S.c.n?u("hCountry",tr(S.c.n)):e.tag==="health"?u("hHealth"):e.tag==="team"?u("hTeam"):e.tag==="react"?u("hReact"):e.tag==="goalev"?u("goal")+" · "+tr(goalObj().n):e.tag==="dilemma"?u("hDilemma"):e.tag==="fp"?u("hFp"):u("hReport")}</span></div>`;
+  else head=`<div class="hd"><span class="label">${MODE==="gov"&&GOV_TAGL[e.tag]?(typeof GOV_TAGL[e.tag]==="function"?GOV_TAGL[e.tag](e):GOV_TAGL[e.tag]):e.tag==="election"?u("hElection"):e.tag==="era"?u("hEra",year()):e.tag===S.c.n?u("hCountry",tr(S.c.n)):e.tag==="health"?u("hHealth"):e.tag==="team"?u("hTeam"):e.tag==="react"?u("hReact"):e.tag==="goalev"?u("goal")+" · "+tr(goalObj().n):e.tag==="dilemma"?u("hDilemma"):e.tag==="fp"?u("hFp"):u("hReport")}</span></div>`;
   const chips=i=>S.adv.filter(a=>S.recs?.[a.role]===i).map(a=>`<span class="chip c-${a.role}" title="${u("advises")}: ${tr(ROLES[a.role].n)}">${tr(ROLES[a.role].s)}</span>`).join("");
   return `<div class="card fade">${lastHTML()}${notesHTML()}${head}
-   <h3>${T.h}</h3><p>${T.x}</p>
+   <h3>${T.h}</h3>${e.dist?`<div class="label where">Где: ${e.dist}</div>`:""}<p>${T.x}</p>
    <div class="opts">${e.o.map((o,i)=>`<button class="opt" data-i="${i}"><span class="t">${optLabel(e,o[0])}${chips(i)?`<span class="chips">${chips(i)}</span>`:""}</span><span class="dots" aria-hidden="true">${M.map(([k,n])=>{const v=Math.abs(o[1][k]||0);return `<span><i class="${v===0?"n":v>6?"l":"s"}"></i>${u("dl")[k]}</span>`}).join("")}</span></button>`).join("")}</div>
    <div class="label" style="text-transform:none;letter-spacing:.02em">${u("dotsHint")}</div>
   </div>`;
 }
 function goalHTML(){
   return `<div class="card fade">${notesHTML()}
-   <div class="hd"><span class="label">${u("goalHead",S.term,year(),S.ruler.no>1&&S.term===1)}</span></div>
+   <div class="hd"><span class="label">${S.vrio?`Врио губернатора · ${year()} · назначен Москвой`:u("goalHead",S.term,year(),S.ruler.no>1&&S.term===1)}</span></div>
    <h3>${u("chooseGoal")}</h3><p>${u("goalP")}</p>
    <div class="opts">${S.offer.map(id=>{const g=GOALS.find(x=>x.id===id);return `<button class="opt goal" data-g="${id}"><span class="t"><b>${tr(g.n)}</b><span class="gd">${tr(g.d)}</span><span class="gw"><span class="up">${u("ifWin")} ${effStr(g.win)}</span> <span class="down">${u("ifFail")} ${effStr(GOAL_FAIL)}</span></span></span></button>`}).join("")}</div>
   </div>`;
@@ -1053,25 +1067,26 @@ function endHTML(){
   const R=S.ruler, y=(S.turn-R.startTurn)/4;
   const term=S.why==="term", G=R.goals[R.goals.length-1];
   const goalLine=term&&G?`<div class="goalbar ${G.ok?"ok":""}"><span class="label">${u("goal")}</span><b>${tr(G.n)}</b><span>${u(G.ok?"goalDone":"goalFail")}</span>${S.goalEff?`<span class="geff">${u(G.ok?"reward":"penalty")}: ${effStr(S.goalEff)} · ${u("votes")} ${G.ok?"+6":"−6"}</span>`:""}</div>`:"";
+  const goalLineX=goalLine+(term&&MODE==="gov"?govEndExtra():"");
   let title,text,btns,final=true;
   if(term&&!hasElection()){
     final=false; title=u("twoTerms"); text=u("twoTermsT");
     btns=`<button class="btn" id="retire">${u("bRetire")}</button><button class="btn ghost" id="rewrite">${u("bRewrite")}</button>`;
   } else if(term){
     const v=S.lastVote??vote();
-    if(v>=50){ final=false; title=u("reelected"); text=u("reelectedT",u("vote",v),S.term+1,u("age",R.age),healthWord(R.health));
+    if(v>=50){ final=false; title=S.vrio?"Вы избраны губернатором!":u("reelected"); text=S.vrio?`Приставки «врио» больше нет: за вас ${u("vote",v)}. Впереди полный срок.`:u("reelectedT",u("vote",v),S.term+1,u("age",R.age),healthWord(R.health));
       btns=`<button class="btn" id="next">${u("bNext",S.term+1)}</button><button class="btn ghost" id="retire">${u("bPeak")}</button>`;
     } else { title=u("lost"); text=u("lostT",u("vote",v)); }
   } else if(S.why==="retire"){ title=u("retired"); text=u("retiredT",u("age",R.age)); }
   else if(S.why==="death"){ title=u("died"); text=u("diedT",u("age",R.age)); }
   else { title=tr(ENDS[S.why][0]); text=tr(ENDS[S.why][1]); }
-  if(!final) return `<div class="card end fade"><div class="label">${tr(S.c.n)} · ${u("inPower",durStr(y))}</div><h2>${title}</h2><p>${text}</p>${goalLine}${tableHTML(S.start,u("termStart"))}<div class="row">${btns}</div></div>`;
+  if(!final) return `<div class="card end fade"><div class="label">${tr(S.c.n)} · ${u("inPower",durStr(y))}</div><h2>${title}</h2><p>${text}</p>${goalLineX}${tableHTML(S.start,u("termStart"))}<div class="row">${btns}</div></div>`;
   const L=legacy();
   if(!R.endTracked){R.endTracked=true; track("reign_end",{why:S.why,country:S.c.n,years:Math.round(L.y),terms:S.term,title:L.t});}
   const list=[...S.rulers,{no:R.no,y:L.y,t:L.t,why:S.why}];
   const howS=r=>u("how")[r.why]||tr(ENDS[r.why][0]);
   return `<div class="card end fade">
-   ${newspaperHTML(title,text,L,y)}${goalLine}
+   ${newspaperHTML(title,text,L,y)}${goalLineX}
    <div class="legacy"><span class="label">${u("legacyL")}</span><b>${tr(L.t)}</b>
     <span class="sub2">${u("goalsStat",L.gd,R.goals.length)}${R.feats.length?" · "+R.feats.map(f=>(f.good?"«":"✗ «")+tr(f.n)+"»").join(", "):""}${S.forever?" · "+u("rewriteNote"):""}</span></div>
    ${tableHTML(R.origin,u("atStart"))}
@@ -1102,14 +1117,17 @@ function newspaperHTML(title,text,L,y){
    <div class="pnums"><div><span>${u("inPowerL")}</span><b>${durStr(y)}</b></div><div><span>${u("termsL")}</span><b>${S.term}</b></div><div><span>${u("fGdp")}</span><b>${sgn(g,1)}%</b></div><div><span>${u("fDebt")}</span><b>${sgn(dd,0)} ${u("pp")}</b></div></div>
   </div>`;
 }
-function nextTerm(){ S.lastVote=null; S.goalEff=null; S.term++; beginTerm(); render(); scrollTo({top:0}); }
+function nextTerm(){ S.vrio=false; S.lastVote=null; S.goalEff=null; S.term++; beginTerm(); render(); scrollTo({top:0}); }
 function successor(){
   track("successor",{country:S.c.n,ruler:S.ruler.no+1});
   const L=legacy(); S.rulers.push({no:S.ruler.no,y:L.y,t:L.t,why:S.why});
   for(const [k] of M) S.m[k]=clamp(S.m[k],22,72);
   S.m.p=clamp(S.m.p+8,0,95); S.m.t=Math.max(S.m.t,40); S.debt*=0.8; S.crisis=null; S.notes=[];
-  if(["l","L"].includes(S.why)) replaceAdv("gen","ousted");
-  newRuler(); S.ruler.age=ri(42,60); beginTerm(); render(); scrollTo({top:0});
+  if(["l","L"].includes(S.why)&&!(MODE==="gov"&&S.why==="L")) replaceAdv("gen","ousted");
+  const prevWhy=S.why;
+  newRuler(); S.ruler.age=ri(42,60);
+  if(MODE==="gov"){ govSuccessor(); S.vrio=true; const c=[...HANDOVER_COMMON].sort(()=>Math.random()-.5).slice(0,2); S.handover=[HANDOVER_WHY[prevWhy]||HANDOVER_WHY.term,...c]; }
+  beginTerm(); render(); scrollTo({top:0});
 }
 
 
@@ -1482,7 +1500,7 @@ const GOVR={
 };
 const UGOV={
  you:"Вы — губернатор", hReact:"Положение в регионе", kicker:"Симулятор правителя", rulerNo:n=>`Губернатор №${n}`, fRuler:"Губернатор", fGdp:"ВРП на душу", fDebt:"Долг бюджета", debtUnit:"% доходов",
- foot:"Данные ≈ 2024 (Росстат, РИА Рейтинг), округлены. Режим губернатора — бета.", hCountry:n=>`Только в регионе: ${n}`, bNew:"Новый регион", rulers:"Губернаторы региона",
+ foot:"Данные ≈ 2024 (Росстат, РИА Рейтинг), округлены. Режим губернатора — бета.", hCountry:n=>`Только в регионе: ${n}`, bNew:"Новый регион", goalP:"Это обещание жителям. Выполните — получите награду и голоса на выборах. Провалите — жители и Москва запомнят.", bSucc:"Дальше: новый губернатор (врио)", rulers:"Губернаторы региона",
  dl:{p:"Ж",t:"Б",e:"Эк",l:"М"}, legacyL:"Краеведы назовут вас", histLine:t=>`Краеведы уже называют его «${t}».`, paper:"Губернские ведомости",
  retiredT:a=>`В ${a} вы передали дела преемнику. В регионе это случается не так часто, как хотелось бы.`,
  rollsub:(pop,age)=>`${pop} жителей ждут ваших решений. Вам ${age}.`,
@@ -1495,7 +1513,7 @@ const govDis=()=>{const n=S.c.n,t=S.c.tags,L=["паводок","лесные п�
  if(["Краснодарский край","Ростовская область","Воронежская область","Алтайский край","Самарская область"].includes(n)) L.push("засуха","пыльная буря");
  if(n==="Москва"||n==="Санкт-Петербург") L.splice(0,L.length,"ливень и подтопления","ураганный ветер","ледяной дождь","сильнейший за век снегопад","аномальная жара");
  return L;};
-const gdist=()=>(S&&S.c&&GOV_DIST[S.c.n])||GDIST;
+const gdist=()=>(S&&S.dist&&S.dist.map(d=>d.n))||(S&&S.c&&GOV_DIST[S.c.n])||GDIST;
 const GTXT_GOV={reg:p=>({h:`${p.r[0].toUpperCase()+p.r.slice(1)} просит денег`,x:`Местная администрация просит ${p.b*100} млн на ${p.pr}. Без этого, говорят там, люди уедут.`})};
 
 
@@ -1592,8 +1610,8 @@ GOV_REACT_KEYS.splice(0,GOV_REACT_KEYS.length,"g_moscow_hi","g_moscow_lo","g_deb
 // Генератор: видеообращение жителей
 GEN.cmp=()=>{const v=pickOne(["Берёзовка","Заречье","Сосновка","Ключи","Луговое","Красный Яр","Подгорное","Ивановка","Новосёлки","Каменка","Озёрный","Лесной"]),
   pr=pickOne(["нет воды уже две недели","дорогу размыло, скорая не проезжает","закрыли единственную школу","нет врача","мусор не вывозят месяц","не ходит автобус","нет мобильной связи","дом в аварийном состоянии","фонари не горят всю зиму","мост через ручей рухнул"]);
-  return {key:"cmp|"+v+pr,p:{v,pr},o:[["Решить лично и быстро",{t:-3,p:5},"Проблему решили за неделю. Жители записали видео с благодарностью."],["Поручить главе района",{p:1},"Глава района обещал разобраться."],["Ответить в соцсетях",{p:-2},"Ответ сочли отпиской."]]};};
-GTXT_GOV.cmp=p=>({h:`Видеообращение из села ${p.v}`,x:`Жители села ${p.v} записали видео: ${p.pr}. Видео набирает просмотры.`});
+  return {key:"cmp|"+v+pr,p:{v,pr,d:pickOne(gdist())},o:[["Решить лично и быстро",{t:-3,p:5},"Проблему решили за неделю. Жители записали видео с благодарностью."],["Поручить главе района",{p:1},"Глава района обещал разобраться."],["Ответить в соцсетях",{p:-2},"Ответ сочли отпиской."]]};};
+GTXT_GOV.cmp=p=>({h:`Видеообращение из села ${p.v}`,x:`Жители села ${p.v} (${p.d}) записали видео: ${p.pr}. Видео набирает просмотры.`});
 GTXT_GOV.dis=p=>({h:`Бедствие: ${p.d}`,x:`${p.d[0].toUpperCase()+p.d.slice(1)}. Пострадавшая территория — ${p.r}, помощь нужна ${p.n.toLocaleString("ru-RU")} жителям.`});
 
 // --- по 2 новых события на каждый регион (и по 4 — на новые) ---
@@ -1678,6 +1696,340 @@ const GOV_HEALTH=[
  ["Кто будет после вас?","Вам больше 70. В Москве осторожно спрашивают о преемнике.",[["Предложить своего кандидата",{l:3,p:1},"Ваш зам стал чаще появляться на публике."],["Не сейчас",{l:-4},"В Москве нервничают."]],"old"],
  ["Ваш юбилей","Областное правительство готовит торжество к вашему дню рождения.",[["Скромно, с семьёй",{p:2},"Тёплые фото облетели местные паблики."],["Концерт на площади",{p:1,t:-3,l:1},"Журналисты посчитали стоимость концерта."]]],
 ].map(([h,x,o,cond])=>({tag:"health",h,x,o,cond}));
+
+
+// ===== Губернатор: сюжет преемника (врио → выборы, приёмка дел, вторая волна событий) =====
+const VRIO_LEN=8; // врио: два года до выборов
+GOALS.push({id:"vrio",av:()=>false,win:{l:4,t:3},n:"Стать избранным губернатором",d:"Доверие жителей 55 и выше к выборам. Москва назначила вас временно — теперь нужно победить.",ok:()=>S.m.p>=55,now:()=>"Жители "+S.m.p});
+GOV_GOALEV.vrio={tag:"goalev",h:"Кто пойдёт против врио",x:"Партии выдвигают кандидатов. Штаб предлагает договориться, чтобы сильный соперник не набрал подписи муниципальных депутатов.",o:[["Пусть идут все",{p:4,l:-3},"Честная борьба. Жители это оценили."],["Договориться за кулисами",{l:3,p:-4},"Соперник «не прошёл фильтр». В соцсетях смеются."],["Позвать соперника в команду",{p:2,t:-1},"Бывший соперник стал вице-губернатором."]]};
+
+const HO=(h,x,o)=>({tag:"handover",h,x,o});
+// Первая карточка зависит от того, чем закончил предшественник
+const HANDOVER_WHY={
+ p:HO("Регион после протестов","Предшественника сняли после массовых протестов. Люди ждут от вас первых слов.",[["Встретиться с протестующими",{p:6,l:-3},"Разговор был тяжёлым, но вас услышали."],["Пообещать новую жизнь, ничего не обещая",{p:2},"Вежливо и осторожно."],["Ужесточить порядок",{l:4,p:-6},"Площади пусты. Доверия нет."]]),
+ t:HO("Пустой бюджет","Предшественник оставил бюджет без денег: зарплаты бюджетникам не плачены второй месяц.",[["Просить бюджетный кредит у Москвы",{t:10,l:-4},"Москва дала денег и запомнила."],["Урезать всё, кроме зарплат",{t:7,p:-4,e:-2},"Зарплаты выплачены, стройки встали."]]),
+ e:HO("Регион в депрессии","Предшественник оставил закрытые заводы и очереди на бирже труда.",[["Объехать все моногорода",{p:4,t:-2},"Вы видели всё своими глазами."],["Особая экономическая зона",{e:6,t:-5},"Первые инвесторы приехали смотреть площадки."]]),
+ l:HO("Москва ждёт чистки","Предшественника сняли с формулировкой «утрата доверия». В Москве ждут, что вы уволите его людей.",[["Уволить всю старую команду",{l:6,p:-1,e:-2},"Кабинеты опустели. Работа встала на месяц."],["Оставить тех, кто работает",{l:-3,p:2},"Москва недовольна, зато дела идут."]]),
+ L:HO("Предшественник теперь в Москве","Прошлого губернатора забрали в федеральное правительство. Теперь он звонит вам как начальник.",[["Советоваться с ним во всём",{l:6,p:-2},"Москва к вам благосклонна. Местные зовут вас «тенью»."],["Держать дистанцию",{l:-3,p:3},"Вы — самостоятельный губернатор. Звонков стало меньше."]]),
+ P:HO("В тени легенды","Предшественника обожали. Каждое ваше решение сравнивают с его.",[["Назвать его именем проспект",{p:4,t:-2},"Жители растроганы."],["Начать с чистого листа",{p:-4,l:2},"«Он бы так не сделал» — пишут в комментариях."]]),
+ T:HO("Дело о бюджете","Предшественника задержали: из профицитного бюджета пропали миллиарды.",[["Открыть все документы следствию",{l:4,p:3,t:-2},"Следствие идёт. Вас ставят в пример."],["Тихо вернуть то, что найдётся",{t:5,p:-3},"Деньги частично вернули. Вопросы остались."]]),
+ E:HO("Пузырь сдулся","При предшественнике строили всё подряд. Теперь стройки брошены, застройщики банкротятся.",[["Достроить дома за счёт бюджета",{t:-8,p:6},"Дольщики получат квартиры."],["Найти новых застройщиков",{e:2,p:-2},"Переговоры займут год."]]),
+ term:HO("Проигравший не уходит","Предшественник проиграл выборы, но его люди остались во всех кабинетах.",[["Новая команда с первого дня",{p:3,l:-2,e:-1},"Кабинеты сменились."],["Работать с теми, кто есть",{l:2},"Старая команда работает. Пока."]]),
+ retire:HO("Наставник на пенсии","Предшественник ушёл сам и предлагает остаться вашим советником.",[["Взять советником",{l:3,p:1},"Опыт пригодился."],["Поблагодарить и проводить",{p:2},"Тёплые проводы в областном правительстве."]]),
+ death:HO("Регион в трауре","Губернатор умер на посту. На прощание пришли тысячи людей.",[["Продолжить его начинания",{p:5,t:-3},"Вы обещали достроить то, что он начал."],["Тихо взять дела",{l:2},"Без громких заявлений."]]),
+};
+// Остальные карточки приёмки дел
+const HANDOVER_COMMON=[
+ HO("Аудит наследства","Финансисты предлагают провести полный аудит всего, что подписал предшественник.",[["Полный аудит",{t:-2,l:-2},"Аудиторы уже в здании.",[3,"ho_audit"]],["Не ворошить прошлое",{l:2,p:-1},"Старые контракты продолжают работать."]]),
+ HO("Недострой предшественника","Предшественник начал строить ледовую арену. Готова наполовину, денег на завершение нет.",[["Достроить",{t:-6,p:3,e:1},"Арену откроют через год."],["Переделать в школу",{t:-4,p:4},"Арена станет школой."],["Заморозить",{p:-3},"Недострой стал местной достопримечательностью."]]),
+ HO("Обещания предшественника","Перед уходом предшественник пообещал учителям прибавку 20%. Денег на неё нет.",[["Выполнить обещание",{t:-7,p:5},"Учителя получили прибавку."],["Отменить: обещал не я",{p:-5,t:2},"Учителя пишут коллективное письмо."],["Половину сейчас, половину потом",{t:-3,p:1},"Компромисс. Недовольны все понемногу."]]),
+ HO("Кабинет губернатора","Помощники предлагают сделать ремонт в кабинете — предшественник оставил его «под себя».",[["Ремонт не нужен",{p:2},"Вы работаете за старым столом."],["Сделать ремонт",{t:-1,p:-2},"Фото нового кабинета утекло в сеть."]]),
+];
+Object.assign(FOLLOW,{
+ ho_audit:{key:"ho_audit",tag:"follow",h:"Итоги аудита",x:"Аудиторы нашли завышенные контракты на 2 млрд. Половина — с компаниями, близкими к действующим министрам.",o:[["Передать всё в прокуратуру",{p:5,l:-4,t:2},"Громкое дело. Москва насторожилась."],["Тихо расторгнуть контракты",{t:4,l:1},"Деньги сэкономлены без скандала."],["Положить отчёт в сейф",{l:3,p:-2},"Отчёт пригодится когда-нибудь."]]},
+});
+
+// ===== Вторая волна: события региона только для преемника =====
+const GS=(n,h,x,o)=>({tag:n,h,x,o,succ:1});
+GOV_EVENTS.push(
+ GS("Москва","Самокаты на тротуарах","Пешеходы жалуются на арендные самокаты: аварий стало вдвое больше.",[["Ограничить скорость и зоны",{p:4,e:-1},"Самокаты медленнее, тротуары спокойнее."],["Запретить в центре",{p:2,e:-2},"Сервисы проката недовольны."],["Ничего не менять",{p:-3,e:1},"Ещё одно видео аварии."]]),
+ GS("Москва","Метро в новую Москву","Жители новых районов за МКАД тратят на дорогу два часа. Просят продлить метро.",[["Продлить линию",{t:-8,p:5,e:2},"Стройка началась."],["Скоростные автобусы",{t:-3,p:2},"Едут быстрее, но не намного."]]),
+ GS("Санкт-Петербург","Высотка у исторического центра","Девелопер хочет поставить небоскрёб, который будет виден с Дворцовой площади.",[["Запретить",{p:5,e:-2},"Небо над центром осталось прежним."],["Разрешить",{e:4,p:-6},"Градозащитники вышли к Смольному."]]),
+ GS("Санкт-Петербург","Сосульки","После оттепели с крыш падают глыбы льда. Пострадал прохожий.",[["Альпинисты на все крыши",{t:-3,p:4},"Крыши чистят, кровлю ломают."],["Штрафовать управляющие компании",{t:1,p:1},"Штрафы выписаны. Сосульки висят."]]),
+ GS("Московская область","Дороги к дачам","Дачники жалуются: к садовым товариществам весной не проехать.",[["Областная программа",{t:-5,p:5},"Дачные дороги отсыпаны щебнем."],["Пусть скидываются сами",{p:-3},"Дачники пишут в приёмную президента."]]),
+ GS("Московская область","Мусоросжигательный завод","Рядом с городом строят мусоросжигательный завод. Жители боятся за воздух.",[["Публичные слушания и контроль",{p:3,t:-1},"Жителей пустили на стройку."],["Строить без слушаний",{e:2,p:-5},"Протесты у забора."]]),
+ GS("Ленинградская область","Порт Усть-Луга","Порт хочет расширяться. Нужна новая дорога и жильё для рабочих.",[["Вложиться в инфраструктуру",{t:-6,e:6},"Порт растёт, посёлок тоже."],["Пусть строит порт",{e:2,l:-1},"Стройка затягивается."]]),
+ GS("Ленинградская область","Ладожские шхеры","Туристы на лодках и катерах оставляют горы мусора на островах.",[["Создать нацпарк",{p:3,e:-1},"Острова под охраной."],["Платные стоянки",{t:2,p:-1},"Мусора меньше, туристов тоже."]]),
+ GS("Воронежская область","Воры чернозёма","Ночью с полей снимают и увозят плодородный слой почвы.",[["Патрули и камеры",{t:-2,p:3},"Первые воры пойманы."],["Пусть разбираются фермеры",{p:-2},"Поля превращаются в ямы."]]),
+ GS("Воронежская область","Городская электричка","Воронеж задыхается от пробок. Предлагают пустить электрички по городу.",[["Запустить",{t:-4,p:4},"Люди пересели на электрички."],["Расширять дороги",{t:-5,e:1,p:1},"Пробки вернулись через год."]]),
+ GS("Тульская область","Коттеджи у Ясной Поляны","Рядом с усадьбой Толстого строят коттеджный посёлок.",[["Остановить стройку",{p:4,e:-2},"Вид из усадьбы сохранён."],["Пусть строят",{e:3,p:-4},"Музей бьёт тревогу."]]),
+ GS("Тульская область","Пряник — бренд региона","Пряничники просят помочь продавать тульский пряник по всей стране.",[["Защитить бренд и помочь с маркетплейсами",{t:-1,e:3,p:1},"Пряник продаётся по всей стране."],["Справятся сами",{},"Подделки множатся."]]),
+ GS("Ивановская область","Фабрика под лофты","Старую текстильную фабрику предлагают отдать под лофты и креативный кластер.",[["Отдать",{e:3,p:2},"В городе появилось модное место."],["Сохранить под производство",{t:-3,e:1},"Цеха ждут инвестора."]]),
+ GS("Ивановская область","Текстиль против маркетплейсов","Местные швейные цеха проигрывают дешёвому импорту.",[["Свой бренд региона",{t:-3,e:3,p:1},"Ивановские вещи продаются под одной маркой."],["Рынок решит",{e:-2},"Цеха закрываются."]]),
+ GS("Республика Татарстан","Свияжск","Остров-град Свияжск переполнен туристами, местные жители уезжают.",[["Ограничить поток",{p:2,e:-1},"Туристов меньше, жителям спокойнее."],["Развивать туризм дальше",{e:3,p:-1},"Новые гостевые дома и шум."]]),
+ GS("Республика Татарстан","Иннополис ищет жителей","Город IT-специалистов построен, но жителей меньше, чем планировали.",[["Льготы IT-компаниям",{t:-4,e:4},"Компании переезжают."],["Не вкладываться больше",{t:2,e:-1},"Город растёт медленно."]]),
+ GS("Республика Башкортостан","Шихан и сода","Содовая компания хочет разрабатывать гору-шихан. Для жителей это святыня.",[["Объявить шихан памятником природы",{p:6,e:-3,l:-2},"Гора спасена."],["Разрешить разработку",{e:4,p:-7},"Палаточный лагерь у горы."]]),
+ GS("Республика Башкортостан","Поддельный мёд","Под видом башкирского мёда продают подделки.",[["Сертификат и проверки",{t:-1,p:2,e:2},"Пасечники довольны."],["Не вмешиваться",{e:-1},"Подделок всё больше."]]),
+ GS("Нижегородская область","Канатная дорога","Канатная дорога над Волгой перегружена. Предлагают вторую.",[["Строить вторую",{t:-5,p:3,e:2},"Очереди исчезли."],["Мост вместо канатки",{t:-8,e:3},"Стройка на годы."]]),
+ GS("Нижегородская область","Автозавод сокращает смены","Автозавод переходит на четырёхдневку. Рабочие теряют зарплату.",[["Областной заказ на автобусы",{t:-5,e:3,p:2},"Конвейер загружен."],["Переобучение рабочих",{t:-2,p:1},"Часть рабочих ушла в другие отрасли."]]),
+ GS("Самарская область","Тольятти без работы","Автозавод в Тольятти сокращает рабочую неделю. Город нервничает.",[["Новые производства в ОЭЗ",{t:-6,e:5},"Пришли новые компании."],["Ждать, пока рынок оживёт",{p:-4},"Молодёжь уезжает."]]),
+ GS("Самарская область","Ракета на площади","Музей космоса просит деньги на обновление. Самара гордится ракетами.",[["Дать денег",{t:-2,p:3},"Школьники едут на экскурсии."],["Пусть ищут спонсоров",{p:-1},"Музей обновится нескоро."]]),
+ GS("Пермский край","Провалы в Березниках","Над старыми рудниками в Березниках снова провалилась земля.",[["Переселить жителей опасной зоны",{t:-7,p:5},"Люди переехали в безопасные дома."],["Укреплять грунт",{t:-4,p:1},"Земля пока держится."]]),
+ GS("Пермский край","Коми-пермяцкий язык","В Кудымкаре просят сохранить коми-пермяцкий язык в школах.",[["Поддержать",{t:-1,p:3},"Уроки родного языка вернулись."],["Оставить по желанию",{},"Язык уходит из школ."]]),
+ GS("Свердловская область","Вторая линия метро","Екатеринбург десятилетиями ждёт вторую линию метро.",[["Начать стройку",{t:-9,p:5,e:2},"Стройка началась."],["Трамвай до спальных районов",{t:-4,p:3},"Трамвай пошёл."]]),
+ GS("Свердловская область","Выбросы в Нижнем Тагиле","Металлургический комбинат снова превысил выбросы.",[["Обязать модернизацию",{p:4,e:-2},"Комбинат ставит фильтры."],["Комбинат — главный работодатель",{e:2,p:-4},"Жители уезжают."]]),
+ GS("Челябинская область","Метротрам","Подземный трамвай в Челябинске строят уже много лет.",[["Достроить",{t:-6,p:4},"Первые вагоны пошли под землёй."],["Заморозить",{t:2,p:-4},"Шутки про метро продолжаются."]]),
+ GS("Челябинская область","Магнитка и квоты","Москва вводит квоты на выбросы для Магнитогорска.",[["Поддержать квоты",{p:4,l:2,e:-2},"Воздух чище, комбинат недоволен."],["Просить отсрочку для комбината",{e:2,p:-3,l:-1},"Отсрочку дали."]]),
+ GS("Краснодарский край","Виноделы просят льгот","Кубанские виноделы просят помочь: импортное вино дешевле.",[["Льготы и винные туры",{t:-2,e:3,p:1},"Винный туризм растёт."],["Рынок решит",{e:-1},"Виноградники продают под застройку."]]),
+ GS("Краснодарский край","Пробки на трассе к морю","Летом трасса к побережью стоит сутками.",[["Новый обход",{t:-8,e:3,p:3},"Обход откроют через три года."],["Регулировать поток",{p:-1},"Туристы стоят в пробках."]]),
+ GS("Ростовская область","Шахтёрские города","Шахты в Гуково и Новошахтинске закрыты, работы нет.",[["Индустриальный парк",{t:-6,e:4,p:2},"Пришли первые производства."],["Пособия и переобучение",{t:-3,p:2},"Люди учатся новым профессиям."]]),
+ GS("Ростовская область","Старый аэропорт","Поле старого аэропорта в центре Ростова хотят застроить.",[["Парк и жильё",{e:2,p:3},"Новый район с парком."],["Только жильё",{e:4,p:-2},"Ещё один спальный район."]]),
+ GS("Мурманская область","Туристы за северным сиянием","В Териберку зимой едут тысячи туристов, а дороги заметает.",[["Чистить дорогу круглосуточно",{t:-3,e:3},"Туристы доезжают."],["Пусть едут на свой риск",{p:-2},"Машины застревают в снегу."]]),
+ GS("Мурманская область","Аэропорт Мурманска","Терминал аэропорта старый и тесный.",[["Новый терминал",{t:-5,e:3,p:2},"Новый терминал открыт."],["Косметический ремонт",{t:-1},"Очереди остались."]]),
+ GS("Республика Карелия","Рускеала","Мраморный каньон Рускеала переполнен. Местные жалуются на пробки.",[["Ограничить поток",{p:2,e:-1},"Порядок вернулся."],["Новые парковки и гостиницы",{t:-3,e:4},"Туристов ещё больше."]]),
+ GS("Республика Карелия","Форелевые фермы","Рыбные фермы на озёрах растут. Экологи говорят, что вода портится.",[["Строгий контроль",{p:3,e:-2},"Фермы ставят очистку."],["Поддерживать фермеров",{e:3,p:-2},"Форель идёт в магазины."]]),
+ GS("Калининградская область","Чёрные копатели янтаря","На побережье нелегально добывают янтарь, пляжи изрыты.",[["Патрули и легальные участки",{t:-2,p:3,e:1},"Копателей меньше."],["Закрыть глаза",{p:-2},"Пляжи в ямах."]]),
+ GS("Калининградская область","Дорогие паромы","Билеты на паромы до материковой России подорожали.",[["Субсидировать билеты",{t:-4,p:4},"Билеты дешевле."],["Просить Москву",{l:-1,p:1},"Москва обещала подумать."]]),
+ GS("Ханты-Мансийский АО — Югра","Что после нефти","Старые месторождения истощаются. Нужен план на будущее.",[["Вкладываться в новые отрасли",{t:-5,e:3},"Технопарк в Сургуте растёт."],["Добывать до последнего",{e:2},"План на будущее отложен."]]),
+ GS("Ханты-Мансийский АО — Югра","Оленьи пастбища","Нефтяники хотят бурить на родовых угодьях ханты.",[["Защитить угодья",{p:3,e:-2},"Семьи остались на своей земле."],["Разрешить с компенсацией",{e:3,p:-2},"Компенсации выплачены."]]),
+ GS("Ямало-Ненецкий АО","Сибирская язва","Тает мерзлота, и врачи опасаются вспышки сибирской язвы у оленей.",[["Массовая вакцинация оленей",{t:-3,p:3},"Риск снижен."],["Ждать вспышки",{p:-2},"Ветеринары бьют тревогу."]]),
+ GS("Ямало-Ненецкий АО","Вахтовики и местные","В посёлках вахтовиков больше, чем местных. Поликлиники перегружены.",[["Компании платят за инфраструктуру",{t:3,e:-1,p:2},"Новые поликлиники за счёт компаний."],["Ничего не менять",{p:-2},"Очереди растут."]]),
+ GS("Новосибирская область","Платный мост","Новый мост через Обь хотят сделать платным.",[["Бесплатный",{t:-4,p:4},"Мост для всех."],["Платный",{t:4,p:-4},"Многие едут по старым мостам."]]),
+ GS("Новосибирская область","Академгородок 2.0","Учёные просят обновить Академгородок: общежития и лаборатории старые.",[["Программа обновления",{t:-5,e:4,p:1},"Молодые учёные остаются."],["Ждать федеральных денег",{e:-1},"Учёные уезжают."]]),
+ GS("Красноярский край","Чёрное небо","Безветрие, и над Красноярском повис смог. Объявлен режим «чёрного неба».",[["Ограничить выбросы заводов",{p:5,e:-3},"Воздух стал чище."],["Попросить жителей не выходить",{p:-4},"Город злится."]]),
+ GS("Красноярский край","Переезд из Норильска","Пенсионеры Норильска хотят переехать на юг края. Ждут квартиры годами.",[["Ускорить переселение",{t:-6,p:5},"Сотни семей переехали."],["По очереди",{p:-2},"Очередь длиной в десять лет."]]),
+ GS("Иркутская область","Отходы Байкальского ЦБК","После закрытия комбината остались пруды с отходами у самого Байкала.",[["Ликвидировать отходы",{t:-6,p:4,l:2},"Работы начались."],["Ждать федеральную программу",{p:-2},"Отходы лежат у озера."]]),
+ GS("Иркутская область","Пожары в тайге","Лесные пожары в отдалённых районах никто не тушит: «зона контроля».",[["Тушить всё",{t:-5,p:4},"Дым над городами рассеялся."],["Тушить только у посёлков",{p:-3},"Дым дошёл до Иркутска."]]),
+ GS("Алтайский край","Курорт Белокуриха","Курорт растёт. Инвесторы хотят строить на склоне горы.",[["Разрешить",{e:4,p:-1},"Новые гостиницы."],["Сохранить склон",{p:2,e:-1},"Лес остался."]]),
+ GS("Алтайский край","Алтайский сыр","Сыроварни просят помочь: импортный сыр снова дешевле.",[["Поддержать сыроваров",{t:-2,e:3,p:1},"Сыр в магазинах всей страны."],["Справятся сами",{e:-1},"Две сыроварни закрылись."]]),
+ GS("Республика Бурятия","Уровень Байкала","Энергетики хотят изменить уровень Байкала, чтобы ГЭС вырабатывали больше.",[["Против",{p:4,e:-2},"Байкал остался как был."],["Разрешить",{e:3,p:-4,l:2},"Экологи возмущены."]]),
+ GS("Республика Бурятия","Иволгинский дацан","К дацану едут тысячи паломников и туристов, дороги не справляются.",[["Новая дорога и парковки",{t:-3,p:3,e:1},"Доехать стало проще."],["Оставить как есть",{p:-1},"Пробки по праздникам."]]),
+ GS("Приморский край","Утильсбор на японские машины","Пошлины на японские машины выросли. Владивосток недоволен.",[["Просить Москву смягчить",{p:4,l:-3},"Москва вас услышала, но запомнила."],["Поддержать решение",{l:3,p:-5},"Автомобилисты вышли на митинг."]]),
+ GS("Приморский край","Игорная зона","Игорная зона под Владивостоком просит льгот на новые казино.",[["Дать льготы",{e:4,p:-2,t:-1},"Новые казино и туристы."],["Отказать",{p:1},"Инвесторы недовольны."]]),
+ GS("Республика Саха (Якутия)","Мерзлота тает","В Якутске трещат дома: под ними тает вечная мерзлота.",[["Программа мониторинга и ремонта",{t:-6,p:4},"Дома укрепляют."],["Ремонтировать по факту",{t:-2,p:-2},"Ещё один дом признан аварийным."]]),
+ GS("Республика Саха (Якутия)","Алмазы и Вилюй","Жители Вилюя жалуются на загрязнение реки после аварий на рудниках.",[["Обязать компанию очистить",{p:4,e:-1},"Компания платит за очистку."],["Компания — главный кормилец",{e:2,p:-3},"Рыбу ловить нельзя."]]),
+ GS("Камчатский край","Пятна у Халактырского пляжа","Серфингисты заметили странную пену у берега. Морские животные выбрасываются на сушу.",[["Срочная экспертиза",{t:-2,p:4,l:-1},"Нашли источник загрязнения."],["Ждать, само пройдёт",{p:-5},"История попала в мировые СМИ."]]),
+ GS("Камчатский край","Круизные лайнеры","Круизные лайнеры хотят заходить в Петропавловск, но морского вокзала нет.",[["Строить вокзал",{t:-5,e:4},"Первые лайнеры пришли."],["Не сейчас",{}, "Лайнеры идут мимо."]]),
+ GS("Республика Коми","Лесопромышленный комбинат","Крупнейший комбинат в Сыктывкаре просит больше леса и налоговых льгот.",[["Дать льготы",{e:4,t:-3},"Комбинат обещает новые цеха."],["Нужен контроль вырубок",{p:2,e:-1},"Комбинат недоволен."]]),
+ GS("Республика Коми","Инта без шахт","Последняя шахта Инты закрыта. Город спрашивает, что дальше.",[["Программа переселения",{t:-6,p:4},"Люди переезжают в Сыктывкар."],["Новый бизнес в Инте",{t:-4,e:2},"Пока открылась одна пилорама."]]),
+ GS("Кировская область","Химзавод в Кирово-Чепецке","Жители Кирово-Чепецка просят проверить старые отходы химзавода.",[["Независимая экспертиза",{p:4,t:-2},"Отходы нашли и вывозят."],["Ничего не трогать",{p:-3},"Слухи ходят по городу."]]),
+ GS("Кировская область","Отменили электрички","Перевозчик отменяет пригородные поезда: невыгодно.",[["Субсидировать поезда",{t:-4,p:4},"Электрички ходят."],["Заменить автобусами",{t:-1,p:-2},"Ехать дольше и дороже."]]),
+ GS("Чувашская Республика","Залив цветёт","Чебоксарский залив летом цветёт и пахнет.",[["Очистить залив",{t:-5,p:4},"Набережная снова любимое место."],["Ждать федеральной программы",{p:-3},"Летом запах вернулся."]]),
+ GS("Чувашская Республика","Чувашский язык в школах","Родители спорят: оставлять ли чувашский язык обязательным предметом.",[["Оставить для всех",{p:-1,l:1},"Язык учат все."],["Сделать по выбору",{p:2},"Половина детей выбрала другой предмет."],["Сделать интереснее: кружки и мультфильмы",{t:-2,p:3},"Дети учат язык с удовольствием."]]),
+);
+
+
+// ===== Губернатор: механики (районы, план Москвы, Минфин, биография, жители, визит, соседи, приёмный день) =====
+const distAvg=()=>S.dist&&S.dist.length?S.dist.reduce((a,d)=>a+d.m,0)/S.dist.length:50;
+const distCol=m=>m<35?"var(--bad)":m<50?"var(--warn)":"var(--good)";
+
+// --- Биография губернатора ---
+const BIO={
+ local:{n:"Местный",d:"вырос в регионе",m:{p:6,l:-4}},
+ techno:{n:"Технократ из Москвы",d:"прислан из федерального ведомства",m:{e:4,l:5,p:-5}},
+ silovik:{n:"Бывший силовик",d:"пришёл из силовых структур",m:{l:6,p:-2,e:-2}},
+};
+const GB=(bio,h,x,o)=>({tag:null,bio,h,x,o});
+
+// --- Районы и биография при старте и у преемника ---
+function govNewRuler(){
+  const keys=Object.keys(BIO); S.ruler.bio=pickOne(keys);
+  for(const k in BIO[S.ruler.bio].m) S.m[k]=clamp(S.m[k]+BIO[S.ruler.bio].m[k],10,85);
+  S.charUsed=S.charUsed||[]; let free=Object.keys(CHARS).filter(k=>!S.charUsed.includes(k)); if(!free.length){S.charUsed=[];free=Object.keys(CHARS);}
+  const ck=pickOne(free); S.charUsed.push(ck); S.chars={[ck]:{st:0,g:null}};
+}
+function govInit(){
+  const L=[...(GOV_DIST[S.c.n]||GDIST)].sort(()=>Math.random()-.5).slice(0,6);
+  S.dist=L.map(n=>({n,m:Math.round(clamp(S.m.p+rnd(-14,14),20,80))}));
+  govNewRuler();
+}
+function govSuccessor(){
+  for(const d of S.dist||[]) d.m=Math.round(50+(d.m-50)*0.5);
+  govNewRuler();
+}
+
+// --- После каждого решения ---
+function govAfterChoose(ev,eff){
+  const dp=eff.p||0, tgt=(ev.p&&(ev.p.r||ev.p.d))||ev.dist;
+  for(const d of S.dist||[]) d.m=Math.round(clamp(d.m+dp*0.5+(d.n===tgt?dp*2.5+(dp>0?3:-3):0)+rnd(-1.2,1.2),0,100));
+  if(eff._v) S.visitPrep=eff._v;
+  if(ev.chr&&S.chars){const C=S.chars[ev.chr]; if(C.st===0) C.g=!!eff._g; C.st++;}
+  S.termMinP=Math.min(S.termMinP??100,S.m.p);
+  if(S.m.t>=80) S.m.t-=2; else if(S.m.t>=72) S.m.t-=1; // Москва урезает трансферты богатым
+  if(S.m.p>=85) S.m.p-=2; else if(S.m.p>=75) S.m.p-=1; // ожидания жителей растут
+}
+
+// --- План Москвы ---
+const PLANS=[
+ {id:"p_build",goal:"build",n:"Нацпроект: три крупные стройки",ok:()=>S.builds>=3,now:()=>`${S.builds} из 3`},
+ {id:"p_debt",goal:"debt",n:"Снизить долг бюджета на 8 п.п.",av:()=>S.debt>20,ok:()=>S.debt<=S.start.debt-8,now:()=>`${sgn(S.debt-S.start.debt,0)} п.п.`},
+ {id:"p_grp",goal:"gdp",n:"Рост ВРП на 5%",ok:()=>S.gdp/S.start.gdp>=1.05,now:()=>sgn((S.gdp/S.start.gdp-1)*100,1)+"%"},
+ {id:"p_tre",goal:"tre",n:"Бюджет без дыр: 50 и выше",ok:()=>S.m.t>=50,now:()=>`Бюджет ${S.m.t}`},
+ {id:"p_eco",goal:"eco",n:"Экономика 60 и выше",ok:()=>S.m.e>=60,now:()=>`Экономика ${S.m.e}`},
+ {id:"p_calm",goal:"pop",n:"Без протестов: доверие жителей не ниже 40 весь срок",ok:()=>(S.termMinP??S.m.p)>=40,now:()=>`минимум ${Math.min(S.termMinP??100,S.m.p)}`},
+];
+const PLAN_WIN={l:5,e:2}, PLAN_FAIL={l:-8};
+const planObj=()=>PLANS.find(p=>p.id===S.plan);
+function assignPlan(){
+  const ok=PLANS.filter(p=>p.goal!==S.goal&&(!p.av||p.av()));
+  S.plan=pickOne(ok).id; S.termMinP=S.m.p; S.planOk=null; S.planEff=null;
+}
+function planResult(){
+  const P=planObj(); if(!P) return; const ok=P.ok(); S.planOk=ok; const eff=ok?PLAN_WIN:PLAN_FAIL; S.planEff=eff;
+  for(const k in eff) S.m[k]=clamp(S.m[k]+eff[k],5,CAP-3);
+}
+function planBarHTML(){
+  const P=planObj(); if(!P) return ""; const ok=P.ok();
+  return `<div class="goalbar plan ${ok?"ok":""}"><span class="label">План Москвы</span><b>${P.n}</b><span>${P.now()} · ${ok?"выполняется":"пока нет"}</span></div>`;
+}
+function distHTML(){
+  if(!S.dist) return "";
+  return `<div class="dists"><span class="label">Районы · настроение</span><div class="dgrid">${S.dist.map(d=>`<div class="dist"><span>${d.n}</span><b>${d.m}</b><div class="bar thin"><i style="width:${d.m}%;background:${distCol(d.m)}"></i></div></div>`).join("")}</div></div>`;
+}
+function govEndExtra(){
+  const P=planObj(); let h="";
+  if(P&&S.planOk!=null) h+=`<div class="goalbar plan ${S.planOk?"ok":""}"><span class="label">План Москвы</span><b>${P.n}</b><span>${S.planOk?"выполнен":"провален — вызов «на ковёр»"}</span>${S.planEff?`<span class="geff">${S.planOk?"Награда":"Штраф"}: ${effStr(S.planEff)}</span>`:""}</div>`;
+  if(S.dist&&S.lastVote!=null){
+    const avg=distAvg(), rows=S.dist.map(d=>({n:d.n,v:Math.round(clamp(S.lastVote+(d.m-avg)*0.7,5,95))})).sort((a,b)=>b.v-a.v);
+    const won=rows.filter(r=>r.v>=50).length;
+    h+=`<div class="dists"><span class="label">Выборы по районам · за вас ${won} из ${rows.length}</span><div class="dgrid">${rows.map(r=>`<div class="dist"><span>${r.n}</span><b style="color:${r.v>=50?"var(--good)":"var(--bad)"}">${r.v}%</b><div class="bar thin"><i style="width:${r.v}%;background:${r.v>=50?"var(--good)":"var(--bad)"}"></i></div></div>`).join("")}</div></div>`;
+  }
+  return h;
+}
+
+// --- Торг в Минфине (раз в срок) ---
+function minfinEv(){
+  const L=S.m.l, big=L>=60;
+  return {tag:"minfin",h:pickOne(["Поездка в Минфин","Торг за трансферты","Встреча с вице-премьером"]),
+   x:`Раз в срок регион едет в Москву просить денег. Отношения с Москвой сейчас — ${L}. ${big?"Вас там ценят: можно просить много.":"К вам относятся прохладно: большая просьба может не пройти."}`,
+   o:[["Просить по максимуму",big?{t:8,l:-3}:{t:3,l:-6},big?"Минфин пошёл навстречу: деньги будут.":"Дали меньше половины, а осадок остался."],
+      ["Просить скромно",{t:3,l:1},"Немного, зато без обид."],
+      ["Привезти проект с софинансированием",{t:-2,e:4,l:2},"Москва любит проекты. Деньги дадут под стройку."]]};
+}
+
+// --- Визит президента (нечётные сроки) ---
+const VISIT=[
+ ()=>({tag:"visit",h:"Подготовка к визиту",x:"Через месяц в регион приезжает президент. Маршрут уже утверждён в Москве.",o:[
+   ["Покрасить всё по маршруту",{t:-4,l:2,p:-2,_v:"paint"},"Фасады свежие, трава зелёная. Жители шутят."],
+   ["Показать всё как есть",{p:2,l:-1,_v:"honest"},"Рискованно. Зато честно."],
+   ["Срочно доделать главную стройку",{t:-6,e:2,_v:"build"},"Рабочие трудятся в три смены."]]}),
+ ()=>{const v=S.visitPrep||"honest";
+  const x={paint:"Президент идёт по свежепокрашенной улице. Журналист спрашивает его про аварийный дом за углом.",
+           honest:"Президент видит разбитую дорогу и при всех спрашивает вас: «Почему так?»",
+           build:"Президент перерезает ленточку на новом объекте. Рядом жители держат плакат про закрытую больницу."}[v];
+  return {tag:"visit",h:"Президент в регионе",x,o:[
+   ["Честно признать проблему",v==="honest"?{l:4,p:3}:{l:-3,p:3},v==="honest"?"Президент оценил прямоту.":"Президент нахмурился: «А что же вы показывали?»"],
+   ["Пообещать решить за месяц",{t:-5,l:3,p:1},"Обещание записали в протокол."],
+   ["Сослаться на предшественника",{l:-2,p:-2},"Президент сменил тему. Неловко вышло."]]};},
+ ()=>S.m.l>=55
+  ?{tag:"visit",h:"Итоги визита",x:"На совещании в Кремле президент похвалил регион. Обещаны федеральные деньги.",o:[["Направить на дороги",{t:3,p:3},"Летом начнут ремонт."],["Направить на больницы",{t:3,p:2,e:1},"Закупят новое оборудование."]]}
+  :{tag:"visit",h:"Итоги визита",x:"После визита в регион приехали проверяющие. Москва недовольна.",o:[["Работать над ошибками",{l:4,t:-3},"Проверка ушла довольной."],["Ждать, пока забудут",{l:-3},"Не забыли."]]},
+];
+
+// --- Приёмный день (чётные сроки) ---
+const RECEPT=[
+ ["Девятый этаж без лифта","Пенсионерка: лифт в доме сломан полгода, а она живёт на девятом этаже.",[["Починить за неделю",{t:-1,p:2},"Лифт работает."],["Включить в план ремонта",{p:-1},"План на следующий год."]]],
+ ["Обещанный участок","Многодетная семья пять лет ждёт обещанный участок под дом.",[["Выдать участок",{t:-1,p:3},"Семья начала стройку."],["Очередь есть очередь",{p:-2},"Семья ушла ни с чем."]]],
+ ["Трактор в кредит","Фермер: банк отказал в кредите на трактор, посевная под угрозой.",[["Позвонить в банк",{e:1,l:-1,p:1},"Кредит одобрили."],["Это не ко мне",{p:-1},"Фермер ушёл расстроенным."]]],
+ ["Снег у подъезда","Ветеран: управляющая компания месяц не чистит снег у подъезда.",[["Снять управляющую компанию",{p:2,l:-1},"Новая компания чистит каждое утро."],["Поручить проверку",{p:1},"Проверка идёт."]]],
+ ["Общежитие без воды","Студентка: в общежитии третью неделю нет горячей воды.",[["Срочный ремонт",{t:-1,p:2},"Вода пошла."],["Это решает вуз",{p:-1},"Студенты моются в спортзале."]]],
+ ["Проверка за проверкой","Предприниматель: к нему ходят с проверками каждый месяц.",[["Разобраться с проверяющими",{e:2,l:-1},"Проверки прекратились."],["Закон для всех один",{e:-1,l:1},"Предприниматель закрыл кафе."]]],
+ ["Нет пандуса","Мама ребёнка на коляске: в поликлинике нет пандуса.",[["Пандус за неделю",{t:-1,p:3},"Пандус построили."],["Включить в программу",{p:-1},"Программа — через год."]]],
+ ["Вышка под окнами","Жители: прямо во дворе ставят вышку связи.",[["Перенести вышку",{p:2,e:-1},"Вышку перенесли за гаражи."],["Связь нужна всем",{e:1,p:-1},"Вышку поставили."]]],
+ ["Темно на улицах","Глава сельского поселения: нет денег на уличное освещение.",[["Дать денег",{t:-2,p:2},"Фонари горят."],["Пусть ищут сами",{p:-1},"В селе темно."]]],
+ ["Зал для детей","Чемпион по борьбе просит помещение для детской секции.",[["Отдать пустующее здание",{p:2,e:1},"Секция открылась."],["Нет свободных зданий",{p:-1},"Дети тренируются в коридоре."]]],
+ ["Рубят рощу","Активисты: в городской роще начали вырубку под парковку.",[["Остановить рубку",{p:3,e:-1},"Роща осталась."],["Проверить документы",{p:1},"Документы в порядке. Роща — нет."]]],
+ ["Подвеска на ямах","Таксист: ямы разбили подвеску, просит компенсацию.",[["Компенсировать и залатать яму",{t:-1,p:1},"Яму заделали."],["Отказать",{p:-1},"Видео разошлось по пабликам."]]],
+];
+function receptionChain(){ return [...RECEPT].sort(()=>Math.random()-.5).slice(0,3).map(([h,x,o],i)=>({tag:"reception",rn:i+1,h,x,o})); }
+
+// --- Сквозные жители ---
+const CH=(chr,h,x,o)=>({tag:"people",chr,h,x,o});
+const CHARS={
+ teacher:[
+  ()=>CH("teacher","Письмо сельской учительницы","Учительница из дальнего села пишет: школу на 12 учеников хотят закрыть, детей будут возить за 30 км.",[["Сохранить школу",{t:-3,p:3,_g:1},"Школа работает."],["Объединить со школой райцентра",{t:1,p:-2,_g:0},"Детей возят на автобусе."]]),
+  g=>g?CH("teacher","Учительница снова пишет","Школа выжила. Учительница просит денег на кружок робототехники.",[["Дать",{t:-1,p:2},"Дети собирают роботов."],["Отказать",{p:-1},"Кружок не открылся."]])
+      :CH("teacher","Учительница уехала","Учительница, которая просила сохранить школу, переехала в город. Село пустеет.",[["Программа «Земский учитель»",{t:-3,p:2},"В сёла поехали молодые учителя."],["Ничего не делать",{p:-2},"Ещё одна семья уехала."]]),
+  g=>g?CH("teacher","Сельская школа на олимпиаде","Ученики той самой сельской школы победили на всероссийской олимпиаде.",[["Поехать поздравить",{p:3,l:1},"Фото с детьми облетело страну."],["Отправить грамоту",{p:1},"Грамоту повесили в классе."]])
+      :CH("teacher","Село опустело","В селе, где закрыли школу, остались 40 пенсионеров. Журналисты сняли фильм.",[["Вернуть автобус и фельдшера",{t:-2,p:2},"Село живёт, пусть и тихо."],["Промолчать",{p:-3},"Фильм посмотрели миллионы."]]),
+ ],
+ farmer:[
+  ()=>CH("farmer","Фермер просит землю","Молодой фермер хочет расширить хозяйство: просит землю в аренду и льготный кредит.",[["Помочь",{t:-2,e:2,_g:1},"Фермер получил землю."],["Пусть идёт по общей очереди",{e:-1,_g:0},"Очередь — два года."]]),
+  g=>g?CH("farmer","Сыроварня фермера","Фермер открыл сыроварню и просит помочь попасть в городские магазины.",[["Поддержать",{e:2,p:1},"Местный сыр на полках."],["Пусть договаривается сам",{e:-1},"Сыр продаётся только на рынке."]])
+      :CH("farmer","Фермер уехал к соседям","Фермер, которому отказали, открыл хозяйство в соседнем регионе.",[["Позвать обратно с льготами",{t:-3,e:2},"Фермер подумает."],["Не держим",{e:-2},"Соседи хвалятся новым хозяйством."]]),
+  g=>g?CH("farmer","Фермер — крупный работодатель","Хозяйство того самого фермера дало работу двумстам жителям района.",[["Вручить награду",{p:2,e:1},"Пример для других."],["Позвать в общественный совет",{l:1,p:1},"Бизнес услышан."]])
+      :CH("farmer","Открытое письмо бизнеса","Предприниматели региона пишут открытое письмо: «Здесь невозможно работать».",[["Мораторий на проверки",{e:3,l:-1},"Бизнес выдохнул."],["Ответить, что всё в порядке",{e:-2,p:-1},"Письмо подписали ещё сто человек."]]),
+ ],
+ blogger:[
+  ()=>CH("blogger","Блогер снимает про дороги","Местный блогер снимает ролики про ямы и называет вас по имени.",[["Пригласить на совещание",{p:2,l:-1,_g:1},"Блогер пришёл и задал неудобные вопросы."],["Игнорировать и чистить комментарии",{p:-3,_g:0},"Блогер снял ролик про удалённые комментарии."]]),
+  g=>g?CH("blogger","Блогер нашёл схему","Блогер выяснил, что подрядчик ремонтирует одну и ту же дорогу третий раз.",[["Уволить ответственного чиновника",{p:4,l:-1},"Чиновник уволен."],["Разобраться тихо",{p:-1},"Блогер пишет, что всё замяли."]])
+      :CH("blogger","Блогер набрал миллион","Ролики о вашем регионе смотрят по всей стране.",[["Дать ему интервью",{p:3,l:-1},"Интервью вышло жёстким, но честным."],["Подать в суд за клевету",{p:-4,l:2},"Суд сделал его ещё популярнее."]]),
+  g=>g?CH("blogger","Блогер в общественной палате","Бывший критик вошёл в общественную палату региона и предлагает проект «Народный контроль».",[["Запустить проект",{p:3,t:-1},"Жители сами проверяют стройки."],["Поблагодарить и отложить",{p:1},"Проект ждёт своего часа."]])
+      :CH("blogger","Блогер идёт на выборы","Блогер-критик объявил, что пойдёт против вас на выборах.",[["Позвать в команду",{p:2,l:-2},"Блогер отказался, но смягчил тон."],["Вести кампанию против него",{t:-3,p:-1},"Война в соцсетях."]]),
+ ],
+};
+function charNext(){
+  if(!S.chars) return null;
+  const open=Object.entries(S.chars).filter(([,c])=>c.st<3); if(!open.length) return null;
+  const minSt=Math.min(...open.map(([,c])=>c.st)); const [k,c]=pickOne(open.filter(([,c])=>c.st===minSt));
+  return CHARS[k][c.st](c.g);
+}
+
+// --- Расписание особых событий губернатора ---
+function govScheduled(){
+  if(S.chain&&S.chain.length){const c=S.chain.shift(); return typeof c==="function"?c():c;}
+  const T=tt();
+  if(T===3) return minfinEv();
+  if(!S.vrio&&T===5){ S.chain=S.term%2?VISIT.slice(1):receptionChain(); return S.term%2?VISIT[0]():S.chain.shift(); }
+  if(S.vrio?T===5:(T===2||T===10)){ const c=charNext(); if(c) return c; }
+  if(S.vrio?T===7:(T===4||T===8)){ const EVP=poolEV(); const idx=EVP.map((e,i)=>i).filter(i=>EVP[i].tag===S.c.n&&eligible(EVP[i])&&S.usedAt[i]===undefined);
+    if(idx.length){ const i=pickOne(idx); S.usedAt[i]=S.turn; return EVP[i]; } }
+  return null;
+}
+
+// --- Соседние регионы ---
+const NEIGH={
+ "Москва":["Московская область","Калужская область"],
+ "Санкт-Петербург":["Ленинградская область"],
+ "Московская область":["Москва","Тверская область","Ярославская область","Владимирская область","Рязанская область","Тульская область","Калужская область","Смоленская область"],
+ "Ленинградская область":["Санкт-Петербург","Новгородская область","Псковская область","Вологодская область","Республика Карелия"],
+ "Воронежская область":["Белгородская область","Курская область","Липецкая область","Тамбовская область","Саратовская область","Волгоградская область","Ростовская область"],
+ "Тульская область":["Московская область","Рязанская область","Липецкая область","Орловская область","Калужская область"],
+ "Ивановская область":["Ярославская область","Костромская область","Нижегородская область","Владимирская область"],
+ "Республика Татарстан":["Чувашская Республика","Марий Эл","Удмуртия","Республика Башкортостан","Оренбургская область","Самарская область","Ульяновская область","Кировская область"],
+ "Республика Башкортостан":["Республика Татарстан","Удмуртия","Пермский край","Свердловская область","Челябинская область","Оренбургская область"],
+ "Нижегородская область":["Владимирская область","Ивановская область","Костромская область","Кировская область","Марий Эл","Чувашская Республика","Мордовия","Рязанская область"],
+ "Самарская область":["Ульяновская область","Республика Татарстан","Оренбургская область","Саратовская область"],
+ "Пермский край":["Республика Коми","Кировская область","Удмуртия","Республика Башкортостан","Свердловская область"],
+ "Свердловская область":["Пермский край","Республика Башкортостан","Челябинская область","Курганская область","Тюменская область","Ханты-Мансийский АО — Югра","Республика Коми"],
+ "Челябинская область":["Свердловская область","Курганская область","Оренбургская область","Республика Башкортостан"],
+ "Краснодарский край":["Ростовская область","Ставропольский край"],
+ "Ростовская область":["Краснодарский край","Ставропольский край","Калмыкия","Волгоградская область","Воронежская область"],
+ "Мурманская область":["Республика Карелия"],
+ "Республика Карелия":["Мурманская область","Архангельская область","Вологодская область","Ленинградская область"],
+ "Ханты-Мансийский АО — Югра":["Ямало-Ненецкий АО","Тюменская область","Свердловская область","Томская область","Красноярский край","Республика Коми"],
+ "Ямало-Ненецкий АО":["Ханты-Мансийский АО — Югра","Красноярский край","Республика Коми","Ненецкий АО"],
+ "Новосибирская область":["Омская область","Томская область","Кемеровская область","Алтайский край"],
+ "Красноярский край":["Иркутская область","Хакасия","Кемеровская область","Томская область","Ханты-Мансийский АО — Югра","Ямало-Ненецкий АО","Республика Саха (Якутия)"],
+ "Иркутская область":["Красноярский край","Республика Бурятия","Республика Саха (Якутия)","Забайкальский край"],
+ "Алтайский край":["Новосибирская область","Кемеровская область","Республика Алтай"],
+ "Республика Бурятия":["Иркутская область","Забайкальский край"],
+ "Приморский край":["Хабаровский край"],
+ "Республика Саха (Якутия)":["Магаданская область","Хабаровский край","Амурская область","Забайкальский край","Иркутская область","Красноярский край","Чукотский АО"],
+ "Камчатский край":["Магаданская область","Чукотский АО"],
+ "Республика Коми":["Архангельская область","Ненецкий АО","Ямало-Ненецкий АО","Ханты-Мансийский АО — Югра","Свердловская область","Пермский край","Кировская область"],
+ "Кировская область":["Республика Коми","Архангельская область","Вологодская область","Костромская область","Нижегородская область","Марий Эл","Республика Татарстан","Удмуртия","Пермский край"],
+ "Чувашская Республика":["Нижегородская область","Марий Эл","Республика Татарстан","Ульяновская область","Мордовия"],
+};
+const NBR_T={
+ poly:{h:n=>`Полигон у границы`,x:n=>`Соседи (${n}) строят мусорный полигон у самой границы. Ветер дует в вашу сторону.`,o:[["Подать в суд",{p:3,l:-2},"Суд приостановил стройку."],["Договориться о совместном заводе",{t:-3,p:2,e:1},"Будет общий перерабатывающий завод."],["Промолчать",{p:-4},"Запах доходит до посёлков."]]},
+ river:{h:n=>`Грязная река`,x:n=>`Река приходит к вам грязной: выше по течению сливают стоки соседи (${n}).`,o:[["Жалоба в Росприроднадзор",{p:2,l:-1},"Проверка нашла нарушения."],["Общая программа очистки",{t:-4,p:3},"Очистные строят вместе."],["Не связываться",{p:-3},"Пляжи закрыты."]]},
+ road:{h:n=>`Дорога к соседям`,x:n=>`Трасса к соседям (${n}) разбита. Кто платит за ремонт — спорят второй год.`,o:[["Ремонтировать за свой счёт",{t:-5,e:3,p:2},"Дорогу отремонтировали."],["Платить пополам",{t:-2,e:1},"Договорились, но ремонт затянулся."],["Ждать соседей",{p:-2},"Фуры объезжают регион."]]},
+ invest:{h:n=>`Инвестор выбирает`,x:n=>`Крупный инвестор выбирает, где строить завод: у вас или у соседей (${n}).`,o:[["Перебить льготами",{t:-6,e:5},"Завод будет у вас."],["Не торговаться",{e:-2},"Завод строят у соседей."],["Предложить общий проект",{e:2,l:1},"Завод у соседей, поставщики — у вас."]]},
+ docs:{h:n=>`Врачей переманивают`,x:n=>`Врачи уезжают к соседям (${n}): там подъёмные вдвое больше.`,o:[["Поднять выплаты",{t:-4,p:3},"Врачи остались."],["Договориться не переманивать",{l:1,p:-1},"Договорились, но врачи всё равно уезжают."],["Ничего не делать",{p:-3},"Очереди в поликлиниках растут."]]},
+};
+GEN.nbr=()=>{const n=pickOne(NEIGH[S.c.n]||["соседний регион"]),k=pickOne(Object.keys(NBR_T));return {key:"nbr|"+k+n,p:{n,k},o:NBR_T[k].o};};
+GTXT_GOV.nbr=p=>({h:`Соседи: ${NBR_T[p.k].h(p.n)}`,x:NBR_T[p.k].x(p.n)});
+
+// --- События по биографии ---
+GOV_EVENTS.push(
+ GB("local","Одноклассник просит подряд","Ваш одноклассник владеет дорожной фирмой и просит «по старой дружбе» контракт на ремонт трассы.",[["Отказать",{p:2,l:1},"Друг обиделся. Конкурс выиграла другая фирма."],["Пусть участвует в конкурсе на общих условиях",{p:1},"Он проиграл честно."],["Помочь другу",{e:1,p:-4},"Журналисты нашли фото с выпускного."]]),
+ GB("local","Родная деревня","Жители вашей родной деревни просят новую дорогу. Соседние сёла ждут дольше.",[["Сделать дорогу",{t:-3,p:-1},"Соседи говорят: «своим строит»."],["По общей очереди",{p:2},"Земляки обиделись, но поняли."]]),
+ GB("local","Говорите как местный","На местном ТВ вы отвечаете без бумажки, с местными словечками. Пресс-служба в панике.",[["Так и продолжать",{p:4,l:-2},"Жители: «наш»."],["Вернуться к бумажке",{l:1,p:-1},"Скучно, но правильно."]]),
+ GB("techno","Ошибка в названии района","На совещании вы неправильно назвали райцентр. Ролик разошёлся по местным пабликам.",[["Посмеяться над собой",{p:2},"Самоирония сработала."],["Объехать все районы за месяц",{p:3,t:-1},"Теперь вы знаете каждый."]]),
+ GB("techno","KPI для чиновников","Вы хотите ввести для министров области показатели эффективности, как в федеральном ведомстве.",[["Ввести",{e:2,l:-2,p:1},"Министры недовольны, работа ускорилась."],["Не ломать устоявшееся",{l:1},"Всё как было."]]),
+ GB("techno","Семья осталась в Москве","Журналисты пишут: семья губернатора живёт в Москве, а он сам летает домой на выходные.",[["Перевезти семью",{p:4},"Дети пошли в местную школу."],["Не комментировать",{p:-3},"История всплывает каждую неделю."]]),
+ GB("silovik","Старые сослуживцы","Бывшие сослуживцы просят назначить их на ключевые посты в правительстве области.",[["Назначить",{l:3,p:-3,e:-1},"Правительство в погонах."],["Отказать",{l:-2,p:2},"Сослуживцы обиделись."]]),
+ GB("silovik","Аресты по старым делам","Вы можете дать ход старым делам о коррупции в областной администрации.",[["Дать ход",{p:4,l:-3},"Задержаны два бывших министра."],["Не трогать",{l:2},"Тишина."]]),
+ GB("silovik","Жёсткий стиль","Подчинённые жалуются: на совещаниях вы кричите и требуете отчёты к утру.",[["Сменить тон",{p:1,l:1},"Совещания стали спокойнее."],["Так и надо",{e:1,p:-2},"Двое замов ушли сами."]]),
+);
+// убрать заглушку и старый одиночный «Визит президента»
+for(let k=GOV_EVENTS.length-1;k>=0;k--){ const e=GOV_EVENTS[k]; if(e.h==="Визит президента"&&!e.bio) GOV_EVENTS.splice(k,1); }
+// события, которые происходят в конкретном районе
+const GOV_LOC=["Аварийный дом","ФАП в деревне","Отменили сельский автобус","Скорая едет час","Школа в две смены","Завод в моногороде","Протест против полигона","Газификация","Мост рухнул","Глава района попался","Перинатальный центр","Борщевик","Снегопад века","Отключили горячую воду"];
+for(const e of GOV_EVENTS) if(GOV_LOC.includes(e.h)) e.loc=1;
+
+const GOV_TAGL={handover:"Приёмка дел",minfin:"Федеральный центр",visit:"Визит президента",reception:e=>`Приёмный день · ${e.rn} из 3`,people:"Жители региона"};
 
 function render(){
   const app=$("#app");
