@@ -181,6 +181,10 @@ body.cjk .ph,body.cjk .mast b,body.cjk .stories h4{letter-spacing:0}
 .ctx .gd{font-size:12.5px}
 .goalbar.theme .gd{flex-basis:100%;font-size:12.5px;color:var(--muted);margin:0}
 .where{margin:-4px 0 4px}
+.cms{display:flex;flex-direction:column;gap:2px;margin-top:6px;font-size:12.5px;color:var(--muted);font-weight:400}
+.news{font-size:13px;line-height:1.4;padding:8px 12px;border-left:3px solid var(--seal);background:var(--paper);border-radius:6px}
+.chron{list-style:none;padding-left:0}
+.chron li b{font-variant-numeric:tabular-nums}
 .goalbar{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;border:1.5px dashed var(--line);border-radius:8px;padding:8px 12px;font-size:13.5px;font-variant-numeric:tabular-nums}
 .goalbar b{font-weight:600}
 .goalbar>span:nth-of-type(2){color:var(--bad);margin-left:auto}
@@ -888,9 +892,9 @@ function pickRaw(){
   if(hasElection()&&tt()===termLen()-4) return EL[0];
   if(hasElection()&&tt()===termLen()-2) return EL[1+Math.floor(Math.random()*2)];
   fpInit(); { const fe=fpEvent(); if(fe) return fe; }
-  const angry=S.adv.find(a=>a.loy<=25&&a.cool<=S.turn);
+  const angry=MODE==="gov"?null:S.adv.find(a=>a.loy<=25&&a.cool<=S.turn);
   if(angry){angry.cool=S.turn+8; const E=(MODE==="gov"&&ADV_EV_GOV[angry.role])||ADV_EV[angry.role]; return {tag:"team",h:E[0],x:E[1],o:E[2]};}
-  const due=S.queue.findIndex(q=>q.at<=S.turn);
+  const due=S.queue.findIndex(q=>q.at<=S.turn&&!(q.fn&&OPTQ.includes(q.fn)&&Math.random()<0.5));
   if(due>=0){const q=S.queue.splice(due,1)[0]; return q.fn?GOV_FN[q.fn](q.a):{...FOLLOW[q.key],from:q.from};}
   if(S.turn-S.lastCrisis>=24&&tt()>=2&&tt()<=8&&Math.random()<0.2){
     const okC=k=>MODE==="gov"?k.startsWith("g_"):!k.startsWith("g_");
@@ -949,7 +953,7 @@ function choose(k){
   S.debt=clamp(S.debt+(before.t-S.m.t)*0.6+(50-S.m.t)/40,0,400);
   if(o[3]) S.queue.push({at:S.turn+o[3][0],key:o[3][1],from:{a:o[0],h:ev.h,turn:S.turn}});
   if(ev.next&&!(ev.key==="olymp2"&&k===2)) S.queue.push({at:S.turn+ev.next[0],key:ev.next[1],from:{a:o[0],h:ev.h,turn:S.turn}});
-  if(MODE==="gov"){ govAfterChoose(ev,eff); govMoscowAfter(eff); if(S.doTransfer){S.doTransfer=false; transfer(); return;} }
+  if(MODE==="gov"){ govAfterChoose(ev,eff); govMoscowAfter(eff); lifeAfter(ev,eff,k); if(S.doTransfer){S.doTransfer=false; transfer(); return;} }
   const lite=ev.gid?{gid:ev.gid,p:ev.p}:ev.fpe?{fpe:ev.fpe,c:ev.c}:{h:ev.h};
   if(ev.fpe){ if(eff._rel) fpRelAdd(ev.c,eff._rel); if(eff._unally) S.allies=S.allies.filter(x=>x!==ev.c); }
   S.log.push({ev:lite,a:o[0],r:o[2],f:!!ev.from,q:S.turn,tag:ev.tag||"",m:["p","t","e","l"].reduce((a,k)=>a+Math.abs(eff[k]||0),0)});
@@ -1002,7 +1006,7 @@ function termResult(){
 const effStr=eff=>Object.entries(eff).map(([k,v])=>tr(M.find(x=>x[0]===k)[1])+" "+(v>0?"+":"−")+Math.abs(v)).join(" · ");
 function vote(){
   const g=(S.gdp/S.start.gdp-1)*100, G=goalObj();
-  return clamp(54-4*(S.term-1)+0.5*(S.m.p-50)+0.4*(S.m.p-S.start.p)+0.25*(S.m.e-S.start.e)+1.5*clamp(g,-15,6)+(G?(G.ok()?6:-6):0)+(advBy("opp").loy-50)*0.06+(MODE==="gov"?(S.dist?(distAvg()-S.m.p)*0.3:0)-3-(S.m.l<35?6:0)-(S.term>=3?2:0)-Math.max(0,S.term-3)*1.5-(S.rotDefy||0)*3+(S.mayorVote||0):0),5,95);
+  return clamp(54-4*(S.term-1)+0.5*(S.m.p-50)+0.4*(S.m.p-S.start.p)+0.25*(S.m.e-S.start.e)+1.5*clamp(g,-15,6)+(G?(G.ok()?6:-6):0)+(advBy("opp").loy-50)*0.06+(MODE==="gov"?(S.dist?(distAvg()-S.m.p)*0.3:0)-3-(S.m.l<35?6:0)-(S.term>=3?2:0)-Math.max(0,S.term-3)*1.5-(S.rotDefy||0)*3+(S.mayorVote||0)+(S.campaign||0):0),5,95);
 }
 
 // ----- интерфейс -----
@@ -1021,7 +1025,7 @@ function dossierHTML(){
   <div class="who"><div class="label">${R.no>1?u("rulerNo",R.no):u("you")} · ${tr(c.r)}</div><h2>${tr(c.n)}</h2><div class="label" style="margin-top:6px">${c.tags.map(t=>TAGNAMES[t]).filter(Boolean).map(tr).join(" · ")||tr("обычная страна")}</div></div>
   <div class="facts">
    <div><span>${u("fRuler")}</span><b>${u("age",R.age)}</b> <span class="delta ${R.health<35?"down":""}" style="display:inline">${u("health",healthWord(R.health))}</span></div>
-   ${MODE==="gov"&&R.bio?`<div><span>Биография</span><b>${BIO[R.bio].n}</b></div><div><span>Рейтинг</span><b>${rankLabel()}</b></div>`:""}<div><span>${u("fPop")}</span><b>${fmtPop(c.pop)}</b></div>
+   ${MODE==="gov"&&R.bio?`<div><span>Биография</span><b>${BIO[R.bio].n}</b></div><div><span>Рейтинг</span><b>${rankLabel()}</b></div><div><span>Состояние</span><b>${fmtCash((R.cash||0)+(R.offshore||0))}</b></div><div><span>Силовики</span><b style="color:${heatCol()}">${heat()}</b></div><div><span>Семья</span><b>${famWord()}</b></div>`:""}<div><span>${u("fPop")}</span><b>${fmtPop(c.pop)}</b></div>
    <div><span>${u("fGdp")}</span><b>${fmtGdp(S.gdp)}</b>${tt()?`<span class="delta ${dg>=0?"up":"down"}" style="display:inline">${sgn(dg,1)}%</span>`:""}</div>
    <div><span>${u("fDebt")}</span><b>${Math.round(S.debt)}${u("debtUnit")}</b>${tt()&&Math.round(dd)?`<span class="delta ${dd<=0?"up":"down"}" style="display:inline">${sgn(dd,0)}</span>`:""}</div>
   </div></div>`;
@@ -1030,13 +1034,13 @@ function timelineHTML(){
   const G=goalObj(), ok=G&&G.ok();
   return `<div class="tlrow"><span class="label">${S.vrio?`Врио губернатора · ${Math.floor(tt()/4)+1}-й год · ${tt()%4+1} кв. · ${year()}`:u("termLabel",S.term,Math.floor(tt()/4)+1,tt()%4+1,year())}</span><span class="label">${hasElection()?`${u("forecast")}${LANG==="zh"?"：":": "}<b style="color:${vote()>=50?"var(--good)":"var(--bad)"}">${Math.round(vote())}%</b>${MODE==="gov"&&S.m.l<35?` · <span style="color:var(--bad)">Москва не поддерживает</span>`:""}`:u("lastTerm")}</span></div>
   <div class="tl">${Array.from({length:termLen()},(_,i)=>`<i class="${i<tt()?"done":i===tt()?"now":""}"></i>`).join("")}</div>
-  ${G?`<div class="goalbar ${ok?"ok":""}"><span class="label">${u("goal")}</span><b>${tr(G.n)}</b><span>${G.now()} · ${u(ok?"goalOn":"goalNot")}</span></div>`:""}${MODE==="gov"?ambBarHTML()+((S.era||S.theme)?`<div class="ctx">${S.era?`<div><span class="label">Эпоха</span> <b>${ERAS[S.era].n}</b><span class="gd"> — ${ERAS[S.era].d}</span></div>`:""}${S.theme?`<div><span class="label">Тема срока</span> <b>${THEMES[S.theme].n}</b><span class="gd"> — ${THEMES[S.theme].d}</span></div>`:""}</div>`:"")+planBarHTML()+progBarHTML()+distHTML():""}`;
+  ${G?`<div class="goalbar ${ok?"ok":""}"><span class="label">${u("goal")}</span><b>${tr(G.n)}</b><span>${G.now()} · ${u(ok?"goalOn":"goalNot")}</span></div>`:""}${MODE==="gov"?(S.news?`<div class="news"><span class="label">Областные новости</span> ${S.news}</div>`:"")+ambBarHTML()+((S.era||S.theme)?`<div class="ctx">${S.era?`<div><span class="label">Эпоха</span> <b>${ERAS[S.era].n}</b><span class="gd"> — ${ERAS[S.era].d}</span></div>`:""}${S.theme?`<div><span class="label">Тема срока</span> <b>${THEMES[S.theme].n}</b><span class="gd"> — ${THEMES[S.theme].d}</span></div>`:""}</div>`:"")+planBarHTML()+progBarHTML()+distHTML():""}`;
 }
 function notesHTML(){ return S.notes.map(n=>n.k?`<div class="note fpn">${u(n.k,...(n.a||[]).map(x=>Array.isArray(x)?x.map(tr).join(", "):tr(x)))}</div>`:`<div class="note">${u("note",tr(ROLES[n.role].n),n.why,n.served,u("age",n.age),n.role==="opp")}</div>`).join(""); }
 function lastHTML(){
   if(!S.last) return "";
   const L=S.last, cr=L.cr?(L.cr.res==="win"?u("crWin",tr(L.cr.n)):L.cr.res==="lose"?u("crLose"):u("crMid")):"";
-  return `<div class="result">${optLabel(L.ev.gid?L.ev:{},L.a)} → <b>${tr(L.r)}${cr}</b></div>`;
+  return `<div class="result">${optLabel(L.ev.gid?L.ev:{},L.a)} → <b>${tr(L.r)}${cr}</b>${MODE==="gov"&&S.lastCm?`<div class="cms">${S.lastCm.map(([t,n,d])=>`<span>«${t}» — ${n}, ${d}</span>`).join("")}</div>`:""}</div>`;
 }
 function cardHTML(){
   const e=S.ev, T=evText(e);
@@ -1102,11 +1106,13 @@ function endHTML(){
   return `<div class="card end fade">
    ${newspaperHTML(title,text,L,y)}${goalLineX}
    <div class="legacy"><span class="label">${u("legacyL")}</span><b>${tr(L.t)}</b>
-    <span class="sub2">${u("goalsStat",L.gd,R.goals.length)}${R.feats.length?" · "+R.feats.map(f=>(f.good?"«":"✗ «")+tr(f.n)+"»").join(", "):""}${S.forever?" · "+u("rewriteNote"):""}</span></div>
+    <span class="sub2">${u("goalsStat",L.gd,R.goals.length)}${R.feats.length?" · "+R.feats.map(f=>(f.good?"«":"✗ «")+tr(f.n)+"»").join(", "):""}${S.forever?" · "+u("rewriteNote"):""}${MODE==="gov"&&((R.cash||0)+(R.offshore||0))>0?" · Личное состояние: "+fmtCash((R.cash||0)+(R.offshore||0)):""}</span></div>
    ${tableHTML(R.origin,u("atStart"))}
    ${list.length>1?`<div class="label">${u("rulers")}</div><ol class="log">${list.map(r=>`<li><b>${u("rulerNo",r.no)}</b>: ${tr(r.t)}, ${durStr(r.y)} · ${howS(r)}</li>`).join("")}</ol>`:""}
+   ${chronHTML()}
    <div class="label">${u("lastDec")}</div>
    <ol class="log">${S.log.slice(-10).map(l=>`<li><b>${l.f?"↳ ":""}${H(l.ev)}</b>: ${optLabel(l.ev,l.a)}</li>`).join("")}</ol>
+   <div class="row"><button class="btn" id="share">${u("bShare")}</button><span id="shareNote" class="gd" style="flex-basis:100%"></span></div>
    <div class="row"><button class="btn" id="succ">${u("bSucc")}</button><button class="btn ghost" id="again">${u("bNew")}</button>${LANG==="ru"?`<button class="btn ghost" id="menu">Сменить режим</button>`:""}</div>
   </div>`;
 }
@@ -1132,7 +1138,7 @@ function newspaperHTML(title,text,L,y){
    <div class="pnums"><div><span>${u("inPowerL")}</span><b>${durStr(y)}</b></div><div><span>${u("termsL")}</span><b>${S.term}</b></div><div><span>${u("fGdp")}</span><b>${sgn(g,1)}%</b></div><div><span>${u("fDebt")}</span><b>${sgn(dd,0)} ${u("pp")}</b></div></div>
   </div>`;
 }
-function nextTerm(){ S.vrio=false; S.lastVote=null; S.goalEff=null; S.term++; beginTerm(); render(); scrollTo({top:0}); }
+function nextTerm(){ if(MODE==="gov"&&S.lastVote!=null) chron(`${S.vrio?"Избран губернатором":"Переизбран"}: ${Math.round(S.lastVote)}%`); S.vrio=false; S.lastVote=null; S.goalEff=null; S.term++; beginTerm(); render(); scrollTo({top:0}); }
 function successor(){
   track("successor",{country:S.c.n,ruler:S.ruler.no+1});
   const L=legacy(); S.rulers.push({no:S.ruler.no,y:L.y,t:L.t,why:S.why});
@@ -1833,11 +1839,12 @@ function govNewRuler(){
   S.charUsed=S.charUsed||[]; let free=Object.keys(CHARS).filter(k=>!S.charUsed.includes(k)); if(!free.length){S.charUsed=[];free=Object.keys(CHARS);}
   const ck=pickOne(free); S.charUsed.push(ck); S.chars={[ck]:{st:0,g:null}};
   S.caseRisk=0; S.vice=null; S.viceSt=0; S.viceG=null;
+  famInit();
 }
 function govInit(){
   const L=[...(GOV_DIST[S.c.n]||GDIST)].sort(()=>Math.random()-.5).slice(0,6);
   S.dist=L.map(n=>({n,m:Math.round(clamp(S.m.p+rnd(-14,14),20,80))}));
-  govNewRuler(); S.mayor=50; qPush(0,"viceChoose"); S.handover=[GOV_FN.ambChoose()];
+  S.npc={j:0,pr:0,ol:0}; govNewRuler(); S.mayor=50; qPush(0,"viceChoose"); S.handover=[GOV_FN.ambChoose()];
 }
 function govSuccessor(){
   for(const d of S.dist||[]) d.m=Math.round(50+(d.m-50)*0.5);
@@ -1976,13 +1983,14 @@ function charNext(){
 function govScheduled(){
   if(S.chain&&S.chain.length){const c=S.chain.shift(); return typeof c==="function"?c():c;}
   const T=tt();
-  if(T===3&&S.term%2===0) return minfinEv();
+  if(T===3&&S.term%2===0&&S.minfinT!==S.term){ S.minfinT=S.term; if(Math.random()<0.5) return minfinEv(); }
   if(T===3&&S.vrio) return minfinEv();
-  if(!S.vrio&&T===5){ const vis=S.term%2===1||S.theme==="jubilee"; S.chain=vis?VISIT.slice(1):receptionChain(); return vis?VISIT[0]():S.chain.shift(); }
-  if(S.queue.some(q=>q.at<=S.turn)) return null; // сюжетные ветки важнее запасных слотов
+  if(!S.vrio&&T===5&&S.bigEv){ const vis=S.bigEv==="visit"; S.chain=vis?VISIT.slice(1):receptionChain(); return vis?VISIT[0]():S.chain.shift(); }
+  if(S.vrio?T===7:(T===4||T===8||T===13)){ const EVP=poolEV(); const idx=EVP.map((e,i)=>i).filter(i=>EVP[i].tag===S.c.n&&eligible(EVP[i])&&S.usedAt[i]===undefined);
+    const gen=idx.length?idx:EVP.map((e,i)=>i).filter(i=>!EVP[i].tag&&eligible(EVP[i])&&S.usedAt[i]===undefined);
+    if(gen.length){ const i=pickOne(gen); S.usedAt[i]=S.turn; const e=EVP[i]; return (e.loc&&S.dist)?{...e,dist:pickOne(S.dist).n}:e; } }
+  if(S.queue.some(q=>q.at<=S.turn)) return null;
   if(S.vrio?T===5:(T===2||T===10)){ const c=charNext(); if(c) return c; }
-  if(S.vrio?T===7:(T===4||T===8)){ const EVP=poolEV(); const idx=EVP.map((e,i)=>i).filter(i=>EVP[i].tag===S.c.n&&eligible(EVP[i])&&S.usedAt[i]===undefined);
-    if(idx.length){ const i=pickOne(idx); S.usedAt[i]=S.turn; return EVP[i]; } }
   return null;
 }
 
@@ -2279,7 +2287,7 @@ function transfer(){
   S.m={p:Math.round(48+(has("poor")?-4:0)+rnd(-5,5)),t:Math.round(clamp(70-c.debt*0.5,25,75)),e:Math.round(clamp(25+18*Math.log10(c.gdp/0.4),20,78)),l:Math.round(clamp(S.m.l,50,70))};
   S.queue=[]; S.usedAt={}; S.genSeen=[]; S.crisis=null; S.chain=null; S.prog=null; S.mega=null; S.reactAt={};
   const L=[...(GOV_DIST[c.n]||GDIST)].sort(()=>Math.random()-.5).slice(0,6); S.dist=L.map(n=>({n,m:Math.round(clamp(S.m.p+rnd(-14,14),20,80))}));
-  S.mayor=50; S.ruler.origin=snap(); S.ruler.ambGdp=c.gdp; S.rotDefy=0; S.rank=null;
+  S.mayor=50; S.npc={j:0,pr:0,ol:0}; chron("Переведён: врио губернатора — "+c.n); S.ruler.origin=snap(); S.ruler.ambGdp=c.gdp; S.rotDefy=0; S.rank=null;
   S.handover=[HO("Новый регион","Вы приехали в незнакомый регион. Местные элиты настороженно смотрят на «варяга».",[["Привезти своих людей",{l:2,p:-2},"Своя команда, чужой регион."],["Опираться на местных",{p:2,l:-1},"Местные оценили."]])];
   S.vrio=true; S.lastVote=null; S.goalEff=null; S.term++; beginTerm(); render(); scrollTo({top:0});
 }
@@ -2289,10 +2297,11 @@ GOV_FN.filler=()=>{const e=genEvent(); return e;};
 function govBeginTerm(){
   S.mayorVote=0; S.mayor=S.mayor??50;
   S.theme=S.vrio?null:pickOne(Object.keys(THEMES));
-  if(S.theme){ qPush(3+ri(0,6),"theme",ri(0,2)); }
-  if(!S.vrio&&S.term%2===1){ qPush(2,"mayor1"); if(Math.random()<0.35) qPush(6,"mayor2"); qPush(10,"mayor3"); }
+  if(S.theme&&Math.random()<0.6){ qPush(3+ri(0,6),"theme",ri(0,2)); }
+  if(!S.vrio&&S.term%2===1&&(S.term===1||Math.random()<0.5)){ qPush(2,"mayor1"); qPush(10,"mayor3"); }
   lateBeginTerm();
   qPush(S.vrio?2+ri(0,4):4+ri(0,7),"scheme");
+  lifeBeginTerm();
   if(!S.vrio&&!S.ruler.megaOffered&&!S.mega){ S.ruler.megaOffered=true; qPush(5,"megaOffer"); }
 }
 function govStoryAfter(ev,eff){
@@ -2354,6 +2363,7 @@ function rankCompute(){
   const d=S.rankPrev!=null?S.rankPrev-r:0;
   S.notes.push({k:"rankNote",a:[String(r),d>0?`↑ на ${d}`:d<0?`↓ на ${-d}`:"без изменений"]});
   if(r<=10) S.m.l=clamp(S.m.l+2,1,CAP-1);
+  if(r<=10&&!S.ruler.top10){S.ruler.top10=1; chron("Регион вошёл в десятку рейтинга губернаторов");}
   if(r>=76) S.m.l=clamp(S.m.l-3,1,CAP-1);
 }
 U.ru.rankNote=(r,d)=>`Вышел федеральный рейтинг губернаторов: вы на ${r}-м месте из 85 (${d}).`;
@@ -2431,7 +2441,7 @@ GOV_EVENTS.push(
 function lateBeginTerm(){
   // эпоха: новая каждые 2 срока
   if(!S.era||S.term%2===1){ const prev=S.era; const keys=Object.keys(ERAS).filter(k=>k!==prev); S.era=S.term===1&&!S.eraSet?"calm":pickOne(keys); S.eraSet=true;
-    if(ERA_EV[S.era]&&!S.vrio){ qPush(1+ri(0,8),"era",0); if(ERA_EV[S.era][1]) qPush(9+ri(0,4),"era",1+ri(0,ERA_EV[S.era].length-2)); } }
+    if(ERA_EV[S.era]&&!S.vrio&&Math.random()<0.6){ qPush(1+ri(0,8),"era",0); } }
   // ротация с 3-го срока
   if(!S.vrio&&S.term>=3) qPush(1,"rot");
   if(!S.vrio&&(S.rotDefy||0)>0) for(let i=0;i<Math.min(2,S.rotDefy);i++) S.queue.push({at:S.turn+4+i*5,fn:"rotp",a:i});
@@ -2504,6 +2514,259 @@ Object.assign(GOV_FN,{
 });
 GOV_TAGL.scheme="Предложение без свидетелей";
 
+
+// ===== Губернатор: личное состояние, семья, роман, сериалы, люди с памятью, новости, летопись =====
+const fmtCash=v=>{v=Math.max(0,Math.round(v)); return v<1000?`${v} млн ₽`:`${(v/1000).toFixed(1).replace(".",",")} млрд ₽`;};
+const heat=()=>{const r=S.caseRisk||0; return r<2?"низкое":r<5?"среднее":"высокое";};
+const heatCol=()=>{const r=S.caseRisk||0; return r<2?"var(--good)":r<5?"var(--warn)":"var(--bad)";};
+function chron(t){ S.ruler.chron=S.ruler.chron||[]; S.ruler.chron.push({y:year(),t}); S.newsQ=(S.newsQ||[]).concat(t); }
+const cashAdd=v=>{ S.ruler.cash=Math.max(0,(S.ruler.cash||0)+v); };
+
+// --- деньги за схемы ---
+const SCHEME_CASH={ooo:60,mining:30,water:150,land:80,kickback:70,cryptobribe:40,bankrupt:180};
+for(const sc of SCHEMES) for(const o of sc.o){ if(o[1]._loot&&SCHEME_CASH[sc.id]) o[1]._cash=SCHEME_CASH[sc.id]; }
+{ const off=SCHEMES.find(x=>x.id==="offshore"); if(off) off.o[1][1]._cash=20; }
+
+// --- откат в стройке века ---
+{ const orig=GOV_FN.megaContr; GOV_FN.megaContr=()=>{ const c=orig(); if(c.tag==="mega") c.o.push(["Фирма родственника министра + откат лично вам",{t:-3,l:2,_mc:"kin",_cash:200,_case:3},"Контракт подписан. На ваш счёт пришли 200 млн."]); return c; }; }
+
+// --- решить вопрос / сбежать ---
+{ const orig=GOV_FN.case2; GOV_FN.case2=()=>{ const c=orig(); const m=(S.ruler.cash||0)+(S.ruler.offshore||0);
+  if((S.ruler.cash||0)>=200) c.o.push(["«Решить вопрос» (−200 млн)",{_cash:-200,_bribe:1},"Нужный человек взял деньги."]);
+  if(m>=300) c.o.push(["Улететь в Дубай, пока не поздно",{_end:"escape"},"Вы улетели первым рейсом."]);
+  return c; }; }
+ENDS.escape=["Сбежал","Губернатор не вернулся из отпуска. Через неделю его объявили в розыск, а регион возглавил временно исполняющий обязанности."];
+UGOV.hl.escape="Губернатор объявлен в розыск";
+UGOV.lede.escape=()=>"Губернатор улетел в отпуск и не вернулся. Следователи пришли в пустой кабинет.";
+
+// --- Личные дела (траты) ---
+const LIFE={
+ villa:{n:"Вилла на побережье за границей",cost:300,d:"Дом у моря. Блогеры рано или поздно его найдут.",run:()=>{S.ruler.villa=1; S.caseRisk=(S.caseRisk||0)+2; chron("Купил виллу за границей"); if(Math.random()<0.65) qPush(4+ri(0,8),"villaLeak");}},
+ yacht:{n:"Яхта",cost:500,d:"Белая яхта и фото на ней. Очень рискованно.",run:()=>{S.ruler.yacht=1; S.caseRisk=(S.caseRisk||0)+2; chron("Купил яхту"); if(Math.random()<0.8) qPush(3+ri(0,6),"yachtLeak");}},
+ kids:{n:"Квартиры детям в Москве",cost:150,d:"Семья довольна. Силовики заметят.",req:()=>S.fam&&(S.fam.son||S.fam.daughter),run:()=>{S.caseRisk=(S.caseRisk||0)+1; chron("Купил детям квартиры в Москве");}},
+ offshore:{n:"Вывести всё в офшор",cost:0,d:"Деньги в безопасности: их не заберут при разводе, и на них можно улететь.",req:()=>(S.ruler.cash||0)>0,run:()=>{S.ruler.offshore=(S.ruler.offshore||0)+(S.ruler.cash||0); S.ruler.cash=0; S.caseRisk=(S.caseRisk||0)+1;}},
+ charity:{n:"Благотворительный фонд вашего имени",cost:100,d:"Жители +4, внимание силовиков снижается.",run:()=>{S.m.p=clamp(S.m.p+4,1,CAP-1); S.caseRisk=Math.max(0,(S.caseRisk||0)-1); chron("Открыл благотворительный фонд");}},
+ campaign:{n:"Оплатить свою предвыборную кампанию",cost:120,d:"+4 голоса на ближайших выборах.",run:()=>{S.campaign=(S.campaign||0)+4;}},
+ gift:{n:"«Подарок» нужным людям в Москве",cost:200,d:"Москва +6. Внимание силовиков растёт.",run:()=>{S.m.l=clamp(S.m.l+6,1,CAP-1); S.caseRisk=(S.caseRisk||0)+1;}},
+};
+function lifeButton(){
+  if(MODE!=="gov"||S.phase!=="play") return "";
+  const tot=(S.ruler.cash||0)+(S.ruler.offshore||0);
+  return `<div class="fprow"><button class="btn ghost fpb" id="lfopen">Личные дела · ${fmtCash(tot)}</button></div>`;
+}
+function lifeHTML(){
+  const used=(S.lfUsed||{})[S.term]||[], cash=S.ruler.cash||0;
+  const rows=Object.entries(LIFE).filter(([k,A])=>!A.req||A.req()).map(([k,A])=>{
+    const why=used.includes(k)?"уже в этом сроке":(A.cost>cash?`нужно ${fmtCash(A.cost)}`:"");
+    return `<button class="opt pgc lfa" data-k="${k}" ${why?"disabled":""}><span class="t"><b>${A.n}</b><span class="gd">${A.d}</span><span class="gw"><span class="up">${A.cost?"−"+fmtCash(A.cost):"бесплатно"}${why?" · "+why:""}</span></span></span></button>`;}).join("");
+  return `<div class="card fade fp"><div class="hd"><span class="label">Личные дела</span></div>
+   <h3>Ваше состояние</h3>
+   <div class="fpstat"><span class="label">На счетах</span><b>${fmtCash(cash)}</b><span class="label" style="margin-left:14px">В офшоре</span><b>${fmtCash(S.ruler.offshore||0)}</b></div>
+   <p class="gd">Внимание силовиков: <b style="color:${heatCol()}">${heat()}</b>. Каждая трата видна кому-то. Действие не занимает ход.</p>
+   <div class="opts">${rows}</div>
+   <div class="row"><button class="btn ghost" id="lfclose">Вернуться к делам</button></div></div>`;
+}
+function lifeBind(){
+  const o=document.getElementById("lfopen"); if(o) o.onclick=()=>{S.lfUI=1; render(); scrollTo({top:0});};
+  if(!S.lfUI) return;
+  const c=document.getElementById("lfclose"); if(c) c.onclick=()=>{S.lfUI=null; render();};
+  document.querySelectorAll(".lfa").forEach(b=>b.onclick=()=>{ const k=b.dataset.k, A=LIFE[k];
+    cashAdd(-A.cost); A.run(); S.lfUsed=S.lfUsed||{}; (S.lfUsed[S.term]=S.lfUsed[S.term]||[]).push(k); track("gov_life",{act:k}); S.lfUI=null; render(); scrollTo({top:0}); });
+}
+Object.assign(GOV_FN,{
+ villaLeak:()=>SC("life","Блогер нашёл вашу виллу","В сети фото роскошной виллы на побережье. Подписано: «Дача губернатора».",[["Сказать, что это дом тёщи",{p:-3,_case:1},"Шутки про тёщу губернатора не утихают."],["Срочно продать виллу",{_cash:150,p:-1},"Вилла продана в убыток."],["Молчать",{p:-5},"Ролик посмотрели два миллиона."]]),
+ yachtLeak:()=>SC("life","Фото с яхты","Дочь одного из ваших министров выложила фото с вашей яхты.",[["«Это яхта друга»",{p:-4,_case:1},"Никто не поверил."],["Продать яхту",{_cash:250,p:-2},"Продали за полцены."]]),
+ decl:()=>{const c=S.ruler.cash||0; return SC("life","Декларация о доходах",`Пора сдавать декларацию. На ваших счетах ${fmtCash(c)}, а зарплата губернатора — несколько миллионов в год.`,[
+   ["Указать всё честно",{p:c>200?-5:-2,_case:-1},"Журналисты ахнули, силовики успокоились."],
+   ["Записать всё на тёщу",{_case:1},"Тёща внезапно стала миллионершей."],
+   ["Перевести на жену",{_case:1,_j:1},"У жены — самый богатый бизнес в области."]]);},
+ gift:()=>SC("life","Часы за пять миллионов","На день рождения бизнесмен дарит вам швейцарские часы стоимостью 5 млн.",[["Принять",{_cash:5,_case:1},"Часы на руке. Фото на пресс-конференции."],["Вернуть с благодарностью",{p:1},"Бизнесмен удивлён."]]),
+});
+
+// --- Семья ---
+function famInit(){
+  const r=Math.random();
+  S.fam={wife:r<0.85?pickOne(["home","biz","doc"]):null,son:Math.random()<0.7,daughter:Math.random()<0.6,mom:Math.random()<0.6,used:[]};
+  if(!S.fam.son&&!S.fam.daughter) S.fam.son=true;
+}
+const famWord=()=>{const F=S.fam; if(!F) return ""; return [F.wife?"жена":"",F.son?"сын":"",F.daughter?"дочь":"",F.mom?"мама":""].filter(Boolean).join(", ")||"один";};
+const FAM=[
+ {id:"wifebiz",req:F=>F.wife==="biz",ev:()=>SC("family","Тендеры для фирмы жены","Строительная фирма вашей жены подала заявку на областной тендер. И, конечно, лучше всех подходит.",[["Пусть участвует",{_cash:80,_case:2,p:-1,_j:1},"Фирма жены выиграла. Журналисты считают."],["Запретить участвовать",{p:1},"Жена обиделась на неделю."]])},
+ {id:"wifeinsta",req:F=>!!F.wife,ev:()=>SC("family","Жена в Куршевеле","Ваша жена выложила фото с курорта: шуба, шампанское, вертолёт.",[["Удалить и извиниться",{p:-1},"Скандал утих."],["«Она сама заработала»",{p:-3,_case:1,_j:1},"Блогеры подняли её доходы."]])},
+ {id:"wifedoc",req:F=>F.wife==="doc",ev:()=>SC("family","Жена-врач","Ваша жена, врач областной больницы, публично говорит, что в больнице нет лекарств.",[["Поддержать её и закупить лекарства",{t:-3,p:4},"Лекарства закупили. Жена — героиня."],["Попросить её молчать",{p:-2},"Дома холодно."]])},
+ {id:"soncar",req:F=>F.son,ev:()=>SC("family","Сын разбил машину","Ваш сын на дорогой машине врезался в автобусную остановку. Пострадавших нет, но видео уже в сети.",[["Пусть отвечает по закону",{p:3},"Сына лишили прав. Жители зауважали."],["Замять",{_cash:-20,_case:2,p:-2},"Видео удалено. Копии остались."]])},
+ {id:"sonpol",req:F=>F.son,ev:()=>SC("family","Сын идёт в депутаты","Ваш сын хочет стать депутатом областной думы. От вашей партии.",[["Поддержать",{l:1,p:-3},"Сын — депутат. Шутки про династию."],["Отговорить",{},"Сын обиделся и уехал в Москву."]])},
+ {id:"wedding",req:F=>F.daughter,ev:()=>SC("family","Свадьба дочери","Дочь выходит замуж за сына крупнейшего бизнесмена области.",[["Пышная свадьба",{_cash:-50,l:2,p:-2,_ol:1},"Гуляли три дня. Фото разошлись."],["Скромная свадьба",{p:1},"Тихо и по-семейному."]])},
+ {id:"london",req:F=>F.daughter||F.son,ev:()=>SC("family","Дети учатся в Лондоне","Журналисты выяснили: ваши дети учатся в Лондоне, а вы призываете жителей «не уезжать из региона».",[["Вернуть детей домой",{p:3},"Дети в местном вузе."],["Это личное дело",{p:-3,_j:1},"Тема всплывает на каждом эфире."]])},
+ {id:"mom",req:F=>F.mom,ev:()=>SC("family","Просьба мамы","Ваша мама звонит из родного села: там хотят закрыть больницу.",[["Сохранить больницу",{t:-2,p:1},"Мама довольна. Соседние сёла завидуют."],["Закрыть по плану",{t:1},"Мама перестала звонить."]])},
+ {id:"gift",req:()=>true,ev:()=>GOV_FN.gift()},
+];
+GOV_FN.fam=()=>{ const F=S.fam; if(!F) return GOV_FN.filler(); const L=FAM.filter(x=>x.req(F)&&!F.used.includes(x.id)); if(!L.length) return GOV_FN.filler(); const x=pickOne(L); F.used.push(x.id); return x.ev(); };
+
+// --- Роман на стороне ---
+const ROM_WHO=["новая пресс-секретарь","телеведущая областного ТВ","молодая помощница"];
+Object.assign(GOV_FN,{
+ rom1:()=>{S.romWho=pickOne(ROM_WHO); return SC("romance","Служебный роман?",`Между вами и ${S.romWho==="новая пресс-секретарь"?"новой пресс-секретарём":S.romWho==="телеведущая областного ТВ"?"телеведущей областного ТВ":"молодой помощницей"} явно что-то есть. В администрации уже шепчутся.`,[
+   ["Начать роман",{_rom:1},"Вы задерживаетесь на работе всё чаще."],["Держать дистанцию",{},"Ничего не было."],["Перевести её в другое ведомство",{p:0},"Шёпот затих."]]);},
+ rom2:()=>SC("romance","Она просит подарок","Роман длится уже полгода. Она намекает, что хочет квартиру — или должность.",[
+   ["Квартира в центре (−60 млн)",(S.ruler.cash||0)>=60?{_cash:-60,_romg:1}:{_romg:0},(S.ruler.cash||0)>=60?"Ключи вручены.":"Денег не хватило. Она обиделась."],
+   ["Должность замминистра культуры",{l:-1,p:-1,_case:1,_romg:1},"Аппарат возмущён. Она счастлива."],
+   ["Отказать",{_romg:0},"Она обиделась."]]),
+ rom3:()=>{ const w=[["leak",0.35],["black",0.25],["wife",S.fam&&S.fam.wife?0.25:0],["quiet",0.15],["agent",0.1]]; let r=Math.random()*w.reduce((a,b)=>a+b[1],0),k="quiet"; for(const [n,v] of w){r-=v; if(r<=0){k=n;break}}
+  if(S.romG===0&&k==="quiet") k="leak";
+  return ({
+   leak:SC("romance","Фото в телеграм-канале","Анонимный канал выложил ваши фото с ней в ресторане. Подпись: «Губернатор работает допоздна».",[["Признать и извиниться",{p:-4,_romEnd:1},"Публичное извинение. Неловко, но честно."],["Назвать фейком",{p:-2,_case:1,_romEnd:1},"Канал выложил ещё фото."],["Купить канал (−50 млн)",(S.ruler.cash||0)>=50?{_cash:-50,_case:1,_romEnd:1}:{p:-5,_romEnd:1},(S.ruler.cash||0)>=50?"Канал удалил посты.":"Денег не хватило. Скандал разгорелся."]]),
+   black:SC("romance","Шантаж","Вам прислали фото и требование: 100 млн, иначе они уйдут журналистам.",[["Заплатить (−100 млн)",(S.ruler.cash||0)>=100?{_cash:-100,_romEnd:1}:{p:-5,_romEnd:1},(S.ruler.cash||0)>=100?"Фото не всплыли. Пока.":"Денег нет. Фото у журналистов."],["Сдать шантажистов силовикам",{p:-2,l:1,_case:1,_romEnd:1},"Шантажистов задержали. Фото всё равно утекли."],["Отказаться",{p:-5,_romEnd:1},"Фото во всех пабликах."]]),
+   wife:SC("romance","Жена всё узнала","Жена нашла переписку. Она требует решения прямо сейчас.",[["Просить прощения и закончить роман",{p:-1,_romEnd:1},"Семья сохранилась. Пока."],["Развод",{p:-3,_divorce:1,_romEnd:1},"Жена забрала половину состояния."]]),
+   quiet:SC("romance","Тайный роман","Роман остаётся тайной. Она говорит, что готова ждать.",[["Закончить по-хорошему",{_romEnd:1},"Расстались друзьями."],["Продолжать",{_romEnd:1,_romAgain:1},"Тайна остаётся тайной."]]),
+   agent:SC("romance","Она работала на силовиков","Выяснилось: всё это время она передавала ваши разговоры следователям.",[["Уволить её",{p:-1,_case:2,_romEnd:1},"Поздно: всё уже записано."],["Сделать вид, что не знаете",{_case:3,_romEnd:1},"Разговоры продолжают записывать."]]),
+  })[k];},
+});
+
+// --- Сериалы региона ---
+const SE=(h,x,o)=>SC("serial",h,x,o);
+const SERIALS={
+ lost:[()=>SE("Пропал школьник","В отдалённом посёлке пропал 12-летний мальчик. Он ушёл в лес за грибами и не вернулся.",[["Все силы на поиски: вертолёты, волонтёры",{t:-3,p:2,_sg:1},"Сотни людей прочёсывают лес."],["Полиция справится сама",{_sg:0},"Поиски идут обычным порядком."]]),
+       g=>g?SE("Нашли следы у реки","Волонтёры нашли следы мальчика у реки. Погода портится.",[["Искать круглосуточно",{t:-2,_sg:1},"Поиски не прекращаются ни на час."],["Ждать погоды",{_sg:0},"Поиски приостановлены."]]):SE("Мать у здания администрации","Мать мальчика стоит у здания администрации с фотографией сына.",[["Выйти к ней и усилить поиски",{t:-2,p:2,_sg:1},"Вы пообещали найти её сына."],["Передать через пресс-службу",{p:-3,_sg:0},"Фото матери у входа облетело страну."]]),
+       g=>g?SE("Мальчик найден живым!","Мальчика нашли через шесть дней: замёрзшего, голодного, но живого.",[["Встретить семью и волонтёров",{p:6},"Вся страна смотрела эти кадры."],["Наградить волонтёров",{p:4,t:-1},"Волонтёры получили медали."]]):SE("Поиски без результата","Мальчика так и не нашли. Посёлок в трауре.",[["Создать областной поисковый центр",{t:-3,p:2},"Такого больше не должно повториться."],["Не комментировать",{p:-4},"Жители не простили молчания."]])],
+ film:[()=>SE("Кино про регион","Известный режиссёр хочет снимать фильм о регионе. Просит деньги и перекрыть центр на месяц.",[["Дать денег и перекрыть",{t:-3,e:1,_sg:1},"Съёмки начнутся весной."],["Только разрешения, без денег",{_sg:0},"Режиссёр задумался."]]),
+       g=>g?SE("Вам предлагают роль","Режиссёр предлагает вам сыграть самого себя в эпизоде.",[["Сняться",{p:2,l:-1,_sg:1},"Вы — звезда эпизода."],["Отказаться",{_sg:1},"Скромность украшает."]]):SE("Режиссёр уехал к соседям","Режиссёр решил снимать у соседей: там дали денег.",[["Позвать обратно с деньгами",{t:-3,_sg:1},"Режиссёр вернулся."],["Пусть снимает там",{p:-1,_sg:0},"Фильм будет про соседей."]]),
+       g=>g?SE("Премьера: фильм — хит","Фильм о регионе собрал миллиард. Туристы едут смотреть места съёмок.",[["Премьера в областном центре",{p:4,e:3},"Красная дорожка на главной площади."],["Сделать маршрут для туристов",{e:4,t:-1},"Туристов стало вдвое больше."]]):SE("Фильм вышел о соседях","Фильм о соседнем регионе стал хитом. Туристы едут туда.",[["Пожать плечами",{p:-1},"Обидно, но бывает."],["Снимать свой сериал",{t:-3,e:1},"Сериал выйдет через два года."]])],
+ gold:[()=>SE("Золото под заповедником","Геологи нашли крупное месторождение золота прямо под заповедником.",[["Разрешить разведку",{e:2,p:-1,_sg:1},"Геологи бурят."],["Запретить",{p:2,_sg:0},"Заповедник цел."]]),
+       g=>g?SE("Компания хочет карьер","Золотодобытчики хотят открытый карьер. Обещают тысячу рабочих мест.",[["Разрешить карьер",{e:5,p:-4,_sg:1},"Карьер копают."],["Только подземная добыча",{e:2,_sg:1},"Дороже, но лес цел."]]):SE("Чёрные старатели","В заповеднике появились незаконные старатели. Реки мутнеют.",[["Охрана и рейды",{t:-2,p:2,_sg:0},"Старателей выгнали."],["Легализовать добычу",{e:2,p:-2,_sg:1},"Старатели стали артелью."]]),
+       g=>g?(Math.random()<0.65?SE("Золотой рудник работает","Рудник дал региону сотни миллионов налогов.",[["Направить на социалку",{t:4,p:3},"Новые школы на золоте."],["В резерв",{t:6},"Бюджет окреп."]]):SE("Авария на руднике","Прорвало дамбу хвостохранилища. Река отравлена на десятки километров.",[["Заставить компанию платить",{p:2,l:-2},"Компания платит, река очищается."],["Ликвидировать за бюджет",{t:-6,p:1},"Река очищается."]])):SE("Заповедник спасён","Учёные и туристы благодарят за сохранённый заповедник.",[["Открыть экотропы",{e:2,p:2},"Туристы приезжают."],["Оставить нетронутым",{p:1},"Природа в покое."]])],
+ bear:[()=>SE("Медведь в городе","Медведь гуляет по окраине областного центра. Видео во всех пабликах.",[["Отловить и увезти в тайгу",{t:-1,p:2,_sg:1},"Медведя увезли за 200 км."],["Отстрелить",{p:-3,_sg:0},"Зоозащитники в ярости."]]),
+       g=>g?SE("Медведь вернулся","Тот же медведь вернулся. С ним медвежонок.",[["Ограждения у свалок",{t:-2,p:2,_sg:1},"Медведи ушли от города."],["Снова увезти",{t:-1,_sg:1},"До следующего раза."]]):SE("Зоозащитники против","Зоозащитники собирают подписи против отстрела.",[["Мораторий на отстрел",{p:2,_sg:1},"Подписи сработали."],["Стоять на своём",{p:-2,l:1,_sg:0},"Подписей уже сто тысяч."]]),
+       g=>g?SE("Медведь — символ города","Медведь стал мемом. Жители хотят сделать его символом города.",[["Сделать маскотом",{p:3,e:1},"Сувениры раскупают."],["Не до медведей",{},"Мем живёт сам."]]):SE("Нападение на дачника","Медведь напал на дачника. Тот жив, но в больнице.",[["Программа защиты дач",{t:-3,p:1},"Ограждения и патрули."],["Разрешить охоту",{p:-1},"Охотники довольны."]])],
+ cup:[()=>SE("Клуб из райцентра в кубке","Футбольный клуб из райцентра дошёл до 1/8 Кубка России.",[["Дать денег на сборы",{t:-2,p:2,_sg:1},"Команда едет на сборы."],["Не вмешиваться",{_sg:0},"Клуб скинулся сам."]]),
+      g=>SE("Четвертьфинал против гранда","Клуб играет с одним из лучших клубов страны.",[["Лететь на матч",{p:2,l:-1,_sg:Math.random()<(g?0.5:0.3)?1:0},"Вы на трибуне."],["Смотреть по телевизору",{_sg:Math.random()<(g?0.45:0.3)?1:0},"Вся область у экранов."]]),
+      g=>g?SE("Сенсация: клуб в полуфинале!","Клуб из райцентра выбил гранда. Вся страна говорит о вашем регионе.",[["Премии игрокам",{t:-1,p:5},"Город празднует неделю."],["Новый стадион",{t:-5,p:4,e:1},"Стадион откроют через год."]]):SE("Вылетели, но полюбились стране","Клуб проиграл в упорной борьбе. Но страна полюбила этих ребят.",[["Встретить команду как героев",{p:3},"Встречали всем городом."],["Поддержать детскую школу клуба",{t:-1,p:2},"Дети пошли в футбол."]])],
+ sect:[()=>SE("Секта в посёлке","В посёлке появилась секта: люди продают квартиры и уходят в лес.",[["Проверка силовиков",{l:1,_sg:1},"Проверка началась."],["Не вмешиваться: свобода вероисповедания",{_sg:0},"Секта растёт."]]),
+       g=>g?SE("Лидер секты задержан","Лидера секты задержали. Сотни людей остались без жилья.",[["Помочь пострадавшим",{t:-3,p:3,_sg:1},"Людям вернули жильё."],["Это их выбор",{p:-2,_sg:0},"Люди ночуют в палатках."]]):SE("Семьи пишут президенту","Родственники членов секты написали президенту.",[["Срочно вмешаться",{l:-2,p:1,_sg:1},"Москва спросила, почему так поздно."],["Ответить отпиской",{p:-3,l:-2,_sg:0},"Скандал на всю страну."]]),
+       g=>g?SE("Посёлок оживает","Люди вернулись к нормальной жизни. Посёлок благодарит.",[["Открыть в посёлке центр помощи",{t:-1,p:2},"Центр работает."],["Забыть как страшный сон",{},"Жизнь продолжается."]]):SE("Секта переехала в город","Секта перебралась в областной центр.",[["Наконец заняться",{l:1,p:-1},"Поздно, но занялись."],["Ждать",{p:-3},"Секта растёт."]])],
+};
+GOV_FN.ser=i=>{ const L=SERIALS[S.serial]; if(!L||!L[i]) return GOV_FN.filler(); return L[i](S.serG); };
+
+// --- Люди с памятью ---
+GOV_FN.npc=()=>{ const N=S.npc; const pick=pickOne(["j","pr","ol"]);
+ if(pick==="j") return N.j>=2?SC("npc","Расследование журналистки","Журналистка-расследователь опубликовала материал о ваших делах. Цифры и фамилии.",[["Всё отрицать",{p:-2},"Отрицание мало кого убедило."],["Подать в суд",{p:-3,_j:1},"Суд только добавил ей читателей."],["Позвать её в пресс-службу",{l:-1,_j:-2},"Она отказалась и написала об этом."]])
+   :SC("npc","Журналистка просит интервью","Известная региональная журналистка просит большое интервью.",[["Дать интервью",{p:2,_j:-1},"Честный разговор вышел хорошим."],["Отказать",{_j:1},"Она запомнила."]]);
+ if(pick==="pr") return N.pr>=1?SC("npc","Прокурор предупреждает","Прокурор области, с которым вы в хороших отношениях, по-дружески предупреждает: на вас собирают материал.",[["Поблагодарить и всё почистить",{_case:-2},"Вы стали осторожнее."],["Не придавать значения",{},"Предупреждение прозвучало."]])
+   :N.pr<=-1?SC("npc","Прокурор запросил документы","Прокурор области запросил документы по областным контрактам за три года.",[["Открыть всё",{l:-1,_case:-1,_pr:1},"Прокурор оценил открытость."],["Затянуть с ответом",{_case:2,_pr:-1},"Прокурор пишет в Генпрокуратуру."]])
+   :SC("npc","Новый прокурор","В область прислали нового прокурора. Он зовёт познакомиться.",[["Встретиться",{_pr:1},"Знакомство вышло тёплым."],["Не до этого",{_pr:-1},"Прокурор запомнил."]]);
+ return N.ol>=1?SC("npc","Олигарх предлагает помощь","Крупнейший бизнесмен области предлагает «помочь» с выборами.",[["Принять помощь",{_camp:3,_cash:30,_case:1},"Билборды, концерты и конверт."],["Отказать",{_ol:-1},"Бизнесмен удивлён."]])
+   :N.ol<=-1?SC("npc","Олигарх против вас","Бизнесмен, которому вы перешли дорогу, финансирует вашего соперника.",[["Договориться",{t:-2,_ol:1},"Мир дорого стоит."],["Бороться",{_camp:-3,p:1},"Война билбордов."]])
+   :SC("npc","Рыбалка с олигархом","Крупнейший бизнесмен области зовёт на рыбалку. Без журналистов.",[["Поехать",{_ol:1,p:-1},"Хороший улов и хорошие связи."],["Отказаться",{},"Бизнесмен пожал плечами."]]);
+};
+
+// --- Комментарии жителей и новости ---
+const NAMES=["Ольга","Сергей","Марина","Андрей","Наталья","Игорь","Татьяна","Дмитрий","Елена","Алексей","Светлана","Михаил","Ирина","Владимир","Галина","Николай"];
+const CM={pos:["Наконец-то!","Спасибо, не ожидала.","Вот это правильно.","Хоть что-то сделали.","Молодцы, так держать."],neg:["Опять за наш счёт.","А обещали другое.","Уезжаем отсюда.","Кому это выгодно?","Позор."],mid:["Посмотрим, что будет.","Обещать — не жениться.","Ну такое.","Время покажет."]};
+function makeComments(eff){
+  const p=eff.p||0, k=p>=3?"pos":p<=-3?"neg":"mid", d=S.dist?S.dist.map(x=>x.n):["область"];
+  const a=pickOne(CM[k]), b=pickOne(CM[k==="mid"?pickOne(["pos","neg"]):k].filter(x=>x!==a));
+  return [[a,pickOne(NAMES),pickOne(d)],[b,pickOne(NAMES),pickOne(d)]];
+}
+function newsTick(){
+  if(S.newsQ&&S.newsQ.length){ S.news=S.newsQ.shift(); return; }
+  if(S.turn%3) return;
+  const low=S.dist&&[...S.dist].sort((a,b)=>a.m-b.m)[0], hi=S.dist&&[...S.dist].sort((a,b)=>b.m-a.m)[0];
+  const old=S.log.filter(l=>l.q>=S.ruler.startTurn&&S.turn-l.q>=6&&S.turn-l.q<=16&&(l.m||0)>=6&&l.ev&&l.ev.h);
+  const opts=[];
+  if(low&&low.m<35) opts.push(`${low.n}: жители недовольны властью — настроение ${Math.round(low.m)}`);
+  if(hi&&hi.m>70) opts.push(`${hi.n} поддерживает губернатора — настроение ${Math.round(hi.m)}`);
+  if(old.length){ const l=pickOne(old); opts.push(`${Math.round((S.turn-l.q)/4)||1} г. назад: «${tr(l.ev.h)}» — вы выбрали «${l.a}». В районах это помнят.`); }
+  if(S.rank) opts.push(`В рейтинге губернаторов — ${S.rank}-е место`);
+  if(opts.length) S.news=pickOne(opts);
+}
+
+// --- Подключение к ходу ---
+const OPTQ=["theme","era","npc","decl","fam"];
+function lifeBeginTerm(){
+  S.campaign=0;
+  if(!S.vrio){
+    S.bigEv=S.theme==="jubilee"?"visit":S.term%2===1?(Math.random()<0.45?"visit":null):(Math.random()<0.25?"rec":null);
+    if(S.term%2===0){ S.usedSer=S.usedSer||[]; let L=Object.keys(SERIALS).filter(k=>!S.usedSer.includes(k)); if(!L.length){S.usedSer=[];L=Object.keys(SERIALS);} S.serial=pickOne(L); S.usedSer.push(S.serial); S.serG=null; qPush(2,"ser",0); }
+  } else S.bigEv=null;
+  if(Math.random()<0.6) qPush(6+ri(0,4),"fam");
+  if(Math.random()<0.5) qPush(7+ri(0,5),"npc");
+  if((S.ruler.cash||0)>0&&Math.random()<0.5) qPush(1+ri(0,2),"decl");
+  if(!S.ruler.romDone&&(S.ruler.romN||0)<2&&Math.random()<(S.term<=2?0.55:0.3)) { S.ruler.romDone=true; qPush(5+ri(0,4),"rom1"); }
+}
+function lifeAfter(ev,eff,k){
+  if(eff._cash) cashAdd(eff._cash);
+  if(eff._loot){ S.npc.j+=1; S.npc.pr-=1; chron(`Схема: «${ev.h}»`); }
+  if(ev.o&&ev.o[k]&&/силовик|ФСБ|прокуратур/i.test(ev.o[k][0])){ S.npc.pr+=1; }
+  if(eff._j) S.npc.j+=eff._j; if(eff._pr) S.npc.pr+=eff._pr; if(eff._ol) S.npc.ol+=eff._ol;
+  if(eff._camp) S.campaign=(S.campaign||0)+eff._camp;
+  if(eff._bribe){ if(Math.random()<0.55){ S.queue=S.queue.filter(q=>q.fn!=="case3"); S.caseRisk=0; chron("Уголовное дело «закрыто»"); S.notes.push({k:"lifeNote",a:["Нужный человек всё решил: дело закрыто."]}); } else { S.caseRisk=(S.caseRisk||0)+5; chron("Попытка подкупа следователя"); S.notes.push({k:"lifeNote",a:["Следователь записал разговор. Теперь у вас две статьи."]}); } }
+  if(ev.tag==="serial"&&eff._sg!=null) S.serG=!!eff._sg;
+  if(ev.tag==="serial"){ S.serStep=(S.serStep||0)+1; if(S.serStep<3) qPush(4,"ser",S.serStep); else { S.serStep=0; chron(ev.h); } }
+  if(eff._rom){ S.ruler.romN=(S.ruler.romN||0)+1; S.ruler.romOn=true; qPush(5,"rom2"); chron("Служебный роман"); }
+  if(eff._romg!=null){ S.romG=eff._romg; qPush(5,"rom3"); }
+  if(eff._romEnd){ S.ruler.romOn=false; if(eff._romAgain&&(S.ruler.romN||0)<2) qPush(10,"rom3"); }
+  if(eff._divorce){ S.ruler.cash=Math.round((S.ruler.cash||0)/2); if(S.fam) S.fam.wife=null; chron("Развод"); }
+  if(eff._pfin) chron(`Завершена программа`);
+  if(eff._mfin!=null) chron(eff._mfin?"Открыта стройка века":"Стройка века — провал");
+  if(ev.h==="Мечта сбылась") chron(`Мечта сбылась: ${AMB[S.ruler.amb]?.n||""}`);
+  S.queue=S.queue.filter(q=>!(OPTQ.includes(q.fn)&&S.turn-q.at>4));
+  S.lastCm=(ev.tag==="election"||ev.tag==="crisis")?null:makeComments(eff);
+  newsTick();
+}
+U.ru.lifeNote=t=>t;
+Object.assign(GOV_TAGL,{life:"Личное",family:"Семья",romance:"Личное",serial:()=>`Сериал региона · серия ${(S.serStep||0)+1} из 3`,npc:"Люди региона"});
+
+// ===== Итог правления: летопись и карточка «Поделиться» (оба режима) =====
+Object.assign(U.ru,{bShare:"Поделиться итогом",chronL:"Летопись правления",shareDone:"Картинка сохранена, текст скопирован — вставьте его в пост."});
+Object.assign(U.en,{bShare:"Share my result",chronL:"Chronicle of your rule",shareDone:"Image saved and text copied — paste it into your post."});
+Object.assign(U.zh,{bShare:"分享结果",chronL:"执政纪事",shareDone:"图片已保存，文字已复制——粘贴到帖子里吧。"});
+const GAME_URL="https://ktoyuraa.github.io/-1-of-195./";
+function chronHTML(){
+  const C=(S.ruler.chron||[]); if(MODE!=="gov"||!C.length) return "";
+  return `<div class="label">${u("chronL")}</div><ol class="log chron">${C.slice(-12).map(c=>`<li><b>${c.y}</b> — ${c.t}</li>`).join("")}</ol>`;
+}
+function shareData(){
+  const R=S.ruler, L=legacy(), y=(S.turn-R.startTurn)/4;
+  const head=(u("hl")[S.why]||tr((ENDS[S.why]||[""])[0])||"").replace("{y}",durStr(y));
+  const lines=[];
+  if(MODE==="gov"){ const tot=(R.cash||0)+(R.offshore||0); if(tot>0) lines.push(`Личное состояние: ${fmtCash(tot)}`); if(R.bestRank&&R.bestRank<99) lines.push(`Лучшее место в рейтинге губернаторов: ${R.bestRank}`);
+    for(const c of (R.chron||[]).slice(-3)) lines.push(`${c.y} — ${c.t}`); }
+  else { for(const f of (R.feats||[]).slice(-3)) lines.push((f.good?"":"✗ ")+tr(f.n)); }
+  return {region:tr(S.c.n),years:durStr(y),terms:S.term,title:tr(L.t),head,lines};
+}
+function shareText(D){
+  if(LANG==="en") return `I ruled ${D.region} for ${D.years}. History calls me "${D.title}". How far will you get? ${GAME_URL}`;
+  if(LANG==="zh") return `我统治了${D.region}${D.years}。历史称我为“${D.title}”。你能走多远？${GAME_URL}`;
+  return `Я правил: ${D.region}, ${D.years}. ${D.head}. Историки называют меня «${D.title}». А как далеко зайдёшь ты? ${GAME_URL}`;
+}
+function wrapText(x,t,maxW){ const w=String(t).split(" "),out=[]; let line=""; for(const s of w){ const tt=line?line+" "+s:s; if(x.measureText(tt).width>maxW&&line){out.push(line);line=s;} else line=tt; } if(line) out.push(line); return out; }
+async function shareCard(){
+  const D=shareData(); track("share",{mode:MODE,why:S.why});
+  const c=document.createElement("canvas"); c.width=1080; c.height=1350; const x=c.getContext("2d");
+  try{ await document.fonts.load('800 80px Unbounded'); await document.fonts.load('400 34px "Golos Text"'); await document.fonts.load('400 26px "JetBrains Mono"'); }catch(e){}
+  const g=x.createLinearGradient(0,0,1080,1350); g.addColorStop(0,"#1B1530"); g.addColorStop(1,"#0E1424"); x.fillStyle=g; x.fillRect(0,0,1080,1350);
+  const zh=LANG==="zh", H=zh?'"Noto Sans SC"':'Unbounded', B=zh?'"Noto Sans SC"':'"Golos Text"';
+  let yy=150; x.textBaseline="alphabetic";
+  x.fillStyle="#E46A80"; x.font='600 28px "JetBrains Mono"'; x.font='600 32px "JetBrains Mono"'; x.fillText((MODE==="gov"?"1 ИЗ 195 · ГУБЕРНАТОР":LANG==="ru"?"1 ИЗ 195":"1 IN 195").toUpperCase(),80,yy); yy+=120;
+  x.fillStyle="#E9EDF5"; x.font=`800 92px ${H}`; for(const l of wrapText(x,D.region,920)){ x.fillText(l,80,yy); yy+=104; }
+  x.fillStyle="#AEB7C9"; x.font=`400 42px ${B}`; x.fillText(`${D.years} у власти`.replace(" у власти",LANG==="ru"?" у власти":LANG==="en"?" in power":"")+` · ${D.terms} ${LANG==="ru"?ruPl(D.terms,"срок","срока","сроков"):LANG==="en"?(D.terms===1?"term":"terms"):"届"}`,80,yy+10); yy+=110;
+  x.fillStyle="#E9EDF5"; x.font=`700 56px ${H}`; for(const l of wrapText(x,D.head,920)){ x.fillText(l,80,yy); yy+=70; } yy+=26;
+  x.fillStyle="#E46A80"; x.font=`700 50px ${H}`; for(const l of wrapText(x,`«${D.title}»`,920)){ x.fillText(l,80,yy); yy+=62; } yy+=50;
+  x.fillStyle="#D5DBE7"; x.font=`400 38px ${B}`;
+  for(const ln of D.lines){ for(const l of wrapText(x,ln,920)){ if(yy>1170) break; x.fillText(l,80,yy); yy+=52; } yy+=12; }
+  x.fillStyle="#E46A80"; x.fillRect(80,1220,920,4);
+  x.fillStyle="#E9EDF5"; x.font=`700 38px ${H}`; x.fillText(LANG==="ru"?"А как далеко зайдёшь ты?":LANG==="en"?"How far will you get?":"你能走多远？",80,1278);
+  x.fillStyle="#AEB7C9"; x.font='400 30px "JetBrains Mono"'; x.fillText("ktoyuraa.github.io/-1-of-195./",80,1320);
+  const text=shareText(D);
+  c.toBlob(async b=>{
+    const f=new File([b],"1-iz-195.png",{type:"image/png"});
+    try{ if(navigator.canShare&&navigator.canShare({files:[f]})){ await navigator.share({files:[f],text}); return; } }catch(e){ if(e&&e.name==="AbortError") return; }
+    try{ const a=document.createElement("a"); a.href=URL.createObjectURL(b); a.download="1-iz-195.png"; document.body.appendChild(a); a.click(); a.remove(); }catch(e){}
+    try{ await navigator.clipboard.writeText(text); }catch(e){}
+    const n=document.getElementById("shareNote"); if(n) n.textContent=u("shareDone");
+  },"image/png");
+}
+
 function render(){
   const app=$("#app");
   applyLang();
@@ -2532,17 +2795,17 @@ function render(){
       else{ $("#rollsub").textContent=u("rollsub",fmtPop(S.c.pop),u("age",S.ruler.age)); setTimeout(()=>{S.phase="goal";render()},1300); }
     }; tick(); return;
   }
-  const main=S.phase==="end"?endHTML():S.phase==="goal"?goalHTML():timelineHTML()+(S.fpUI?fpHTML():S.pgUI?progHTML():fpButton()+progButton()+cardHTML());
+  const main=S.phase==="end"?endHTML():S.phase==="goal"?goalHTML():timelineHTML()+(S.fpUI?fpHTML():S.pgUI?progHTML():S.lfUI?lifeHTML():fpButton()+progButton()+lifeButton()+cardHTML());
   app.innerHTML=(MODE==="gov"?"":langBar())+dossierHTML()+gaugeHTML()+main+(MODE==="gov"?"":teamHTML())+`<p class="foot">${u("foot")}</p>`;
   bindLang();
   if(S.phase==="end"){
     const on=(id,f)=>{const b=document.getElementById(id); if(b) b.onclick=f;};
-    on("again",newGame); on("menu",()=>{S=null;MODE="pres";render();scrollTo({top:0});}); on("next",nextTerm); on("succ",successor); on("transfer",transfer);
+    on("again",newGame); on("menu",()=>{S=null;MODE="pres";render();scrollTo({top:0});}); on("next",nextTerm); on("succ",successor); on("transfer",transfer); on("share",shareCard);
     on("retire",()=>{S.why="retire";render();scrollTo({top:0});});
     on("rewrite",()=>{S.forever=true; S.m.p=clamp(S.m.p-12,1,100); S.m.l=clamp(S.m.l+8,0,CAP-3); nextTerm();});
     return; }
   if(S.phase==="goal"){ document.querySelectorAll(".opt.goal").forEach(b=>b.onclick=()=>setGoal(b.dataset.g)); return; }
-  fpBind(); progBind(); if(S.fpUI||S.pgUI) return;
+  fpBind(); progBind(); lifeBind(); if(S.fpUI||S.pgUI||S.lfUI) return;
   document.querySelectorAll(".opt").forEach(b=>{
     const i=+b.dataset.i, eff=S.ev.o[i][1];
     const hl=on=>document.querySelectorAll(".g").forEach(g=>g.classList.toggle("hint",on&&!!eff[g.dataset.k]));
