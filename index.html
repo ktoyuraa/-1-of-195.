@@ -177,6 +177,8 @@ body.cjk .ph,body.cjk .mast b,body.cjk .stories h4{letter-spacing:0}
 .dist .bar{grid-column:1/-1}
 .goalbar.plan{border-color:var(--line)}
 .goalbar.theme{border-style:solid;background:var(--paper)}
+.ctx{display:flex;flex-direction:column;gap:4px;font-size:13px;line-height:1.4;padding:2px 2px}
+.ctx .gd{font-size:12.5px}
 .goalbar.theme .gd{flex-basis:100%;font-size:12.5px;color:var(--muted);margin:0}
 .where{margin:-4px 0 4px}
 .goalbar{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;border:1.5px dashed var(--line);border-radius:8px;padding:8px 12px;font-size:13.5px;font-variant-numeric:tabular-nums}
@@ -871,7 +873,7 @@ function beginTerm(){
 function setGoal(id){S.notes=[]; S.goal=id; S.phase="play"; if(MODE==="gov") assignPlan(); S.ev=pick(); render();}
 
 // ----- выбор следующей карточки -----
-function eligible(e){ if(e.succ&&S.ruler.no<2) return false; if(e.bio&&e.bio!==S.ruler.bio) return false; if(e.y&&year()<e.y) return false; return !e.tag||e.tag==="era"||e.tag==="dilemma"||e.tag===S.c.n||S.c.tags.includes(e.tag)||(e.tag==="forever"&&S.forever);}
+function eligible(e){ if(e.succ&&S.ruler.no<2) return false; if(e.bio&&e.bio!==S.ruler.bio) return false; if(e.minT&&S.term<e.minT) return false; if(e.y&&year()<e.y) return false; return !e.tag||e.tag==="era"||e.tag==="dilemma"||e.tag===S.c.n||S.c.tags.includes(e.tag)||(e.tag==="forever"&&S.forever);}
 function pick(){ const e=pickRaw(); S.recs=advice(e); return e; }
 function genEvent(){
   const ids=Object.keys(GEN).filter(g=>MODE==="gov"?["reg","dis","cmp"].concat(NEIGH[S.c.n]?["nbr"]:[]).includes(g):!["cmp","nbr"].includes(g));
@@ -925,7 +927,7 @@ function pickRaw(){
 function choose(k){
   const ev=S.ev,o=ev.o[k],eff=o[1],frag=S.c.tags.includes("fragile");
   const before={...S.m}; S.notes=[];
-  for(const [key] of M){ let v=eff[key]||0; if(v<0&&frag) v=Math.round(v*1.25); if(v>0&&(key==="p"||key==="t"||(MODE==="gov"&&key==="e"))) v=Math.round(v*(S.m[key]>=84?0.45:S.m[key]>=72?0.7:1)); /* у потолка рост даётся труднее */ if(v<0&&S.term>3) v=Math.round(v*Math.min(1.5,1+0.06*(S.term-3))); S.m[key]+=v; }
+  for(const [key] of M){ let v=eff[key]||0; if(v<0&&frag) v=Math.round(v*1.25); if(v>0&&(key==="p"||key==="t"||(MODE==="gov"&&key==="e"))) v=Math.round(v*(S.m[key]>=84?0.45:S.m[key]>=72?0.7:1)); /* у потолка рост даётся труднее */ if(MODE==="gov"&&key==="p"&&v>0&&S.term>=3) v=Math.round(v*Math.max(0.6,1-0.07*(S.term-2))); /* усталость от долгого правления */ if(v<0&&S.term>3) v=Math.round(v*Math.min(1.5,1+0.06*(S.term-3))); S.m[key]+=v; }
   if(eff._h) S.ruler.health=clamp(S.ruler.health+eff._h,0,100);
   if(eff._loy) for(const r in eff._loy){const a=advBy(r); a.loy=clamp(a.loy+eff._loy[r],0,100);}
   if(eff._rep) replaceAdv(eff._rep,eff._rep==="opp"?"arrest":"fired");
@@ -947,7 +949,7 @@ function choose(k){
   S.debt=clamp(S.debt+(before.t-S.m.t)*0.6+(50-S.m.t)/40,0,400);
   if(o[3]) S.queue.push({at:S.turn+o[3][0],key:o[3][1],from:{a:o[0],h:ev.h,turn:S.turn}});
   if(ev.next&&!(ev.key==="olymp2"&&k===2)) S.queue.push({at:S.turn+ev.next[0],key:ev.next[1],from:{a:o[0],h:ev.h,turn:S.turn}});
-  if(MODE==="gov") govAfterChoose(ev,eff);
+  if(MODE==="gov"){ govAfterChoose(ev,eff); govMoscowAfter(eff); if(S.doTransfer){S.doTransfer=false; transfer(); return;} }
   const lite=ev.gid?{gid:ev.gid,p:ev.p}:ev.fpe?{fpe:ev.fpe,c:ev.c}:{h:ev.h};
   if(ev.fpe){ if(eff._rel) fpRelAdd(ev.c,eff._rel); if(eff._unally) S.allies=S.allies.filter(x=>x!==ev.c); }
   S.log.push({ev:lite,a:o[0],r:o[2],f:!!ev.from,q:S.turn,tag:ev.tag||"",m:["p","t","e","l"].reduce((a,k)=>a+Math.abs(eff[k]||0),0)});
@@ -978,10 +980,13 @@ function choose(k){
   const dead=M.find(([key])=>S.m[key]<=0);
   if(eff._retire){S.phase="end";S.why="retire";}
   else if(eff._arrest){S.phase="end";S.why="arrest";}
+  else if(eff._end){S.phase="end";S.why=eff._end;}
   else if(R.health<=0||Math.random()<q){S.phase="end";S.why="death";}
   else if(dead){S.phase="end";S.why=dead[0];}
+  else if(eff._mskEnd){S.phase="end";S.why="L";}
+  else if(MODE==="gov"&&S.m.l>=CAP&&!M.some(([key])=>key!=="l"&&S.m[key]>=CAP)){ S.m.l=CAP-5; if(!S.moscowPending&&!S.mskArc){S.moscowPending=true; S.handover=[GOV_FN.moscowCall(),...(S.handover||[])];} S.ev=pick(); }
   else if(M.some(([key])=>S.m[key]>=CAP)){S.phase="end";S.why=OVER[M.find(([key])=>S.m[key]>=CAP)[0]];}
-  else if(tt()>=termLen()){S.phase="end";S.why="term"; termResult();}
+  else if(tt()>=termLen()&&!S.mskArc&&!S.moscowPending){S.phase="end";S.why="term"; termResult();}
   else S.ev=pick();
   if(S.phase==="end"&&S.why==="term") track("term_end",{country:S.c.n,term:S.term});
   render();
@@ -997,7 +1002,7 @@ function termResult(){
 const effStr=eff=>Object.entries(eff).map(([k,v])=>tr(M.find(x=>x[0]===k)[1])+" "+(v>0?"+":"−")+Math.abs(v)).join(" · ");
 function vote(){
   const g=(S.gdp/S.start.gdp-1)*100, G=goalObj();
-  return clamp(54-4*(S.term-1)+0.5*(S.m.p-50)+0.4*(S.m.p-S.start.p)+0.25*(S.m.e-S.start.e)+1.5*clamp(g,-15,6)+(G?(G.ok()?6:-6):0)+(advBy("opp").loy-50)*0.06+(MODE==="gov"?(S.dist?(distAvg()-S.m.p)*0.3:0)-3-(S.m.l<35?6:0)-(S.term>=3?2:0)+(S.mayorVote||0):0),5,95);
+  return clamp(54-4*(S.term-1)+0.5*(S.m.p-50)+0.4*(S.m.p-S.start.p)+0.25*(S.m.e-S.start.e)+1.5*clamp(g,-15,6)+(G?(G.ok()?6:-6):0)+(advBy("opp").loy-50)*0.06+(MODE==="gov"?(S.dist?(distAvg()-S.m.p)*0.3:0)-3-(S.m.l<35?6:0)-(S.term>=3?2:0)-Math.max(0,S.term-3)*1.5-(S.rotDefy||0)*3+(S.mayorVote||0):0),5,95);
 }
 
 // ----- интерфейс -----
@@ -1016,7 +1021,7 @@ function dossierHTML(){
   <div class="who"><div class="label">${R.no>1?u("rulerNo",R.no):u("you")} · ${tr(c.r)}</div><h2>${tr(c.n)}</h2><div class="label" style="margin-top:6px">${c.tags.map(t=>TAGNAMES[t]).filter(Boolean).map(tr).join(" · ")||tr("обычная страна")}</div></div>
   <div class="facts">
    <div><span>${u("fRuler")}</span><b>${u("age",R.age)}</b> <span class="delta ${R.health<35?"down":""}" style="display:inline">${u("health",healthWord(R.health))}</span></div>
-   ${MODE==="gov"&&R.bio?`<div><span>Биография</span><b>${BIO[R.bio].n}</b></div>`:""}<div><span>${u("fPop")}</span><b>${fmtPop(c.pop)}</b></div>
+   ${MODE==="gov"&&R.bio?`<div><span>Биография</span><b>${BIO[R.bio].n}</b></div><div><span>Рейтинг</span><b>${rankLabel()}</b></div>`:""}<div><span>${u("fPop")}</span><b>${fmtPop(c.pop)}</b></div>
    <div><span>${u("fGdp")}</span><b>${fmtGdp(S.gdp)}</b>${tt()?`<span class="delta ${dg>=0?"up":"down"}" style="display:inline">${sgn(dg,1)}%</span>`:""}</div>
    <div><span>${u("fDebt")}</span><b>${Math.round(S.debt)}${u("debtUnit")}</b>${tt()&&Math.round(dd)?`<span class="delta ${dd<=0?"up":"down"}" style="display:inline">${sgn(dd,0)}</span>`:""}</div>
   </div></div>`;
@@ -1025,7 +1030,7 @@ function timelineHTML(){
   const G=goalObj(), ok=G&&G.ok();
   return `<div class="tlrow"><span class="label">${S.vrio?`Врио губернатора · ${Math.floor(tt()/4)+1}-й год · ${tt()%4+1} кв. · ${year()}`:u("termLabel",S.term,Math.floor(tt()/4)+1,tt()%4+1,year())}</span><span class="label">${hasElection()?`${u("forecast")}${LANG==="zh"?"：":": "}<b style="color:${vote()>=50?"var(--good)":"var(--bad)"}">${Math.round(vote())}%</b>${MODE==="gov"&&S.m.l<35?` · <span style="color:var(--bad)">Москва не поддерживает</span>`:""}`:u("lastTerm")}</span></div>
   <div class="tl">${Array.from({length:termLen()},(_,i)=>`<i class="${i<tt()?"done":i===tt()?"now":""}"></i>`).join("")}</div>
-  ${G?`<div class="goalbar ${ok?"ok":""}"><span class="label">${u("goal")}</span><b>${tr(G.n)}</b><span>${G.now()} · ${u(ok?"goalOn":"goalNot")}</span></div>`:""}${MODE==="gov"?(S.theme?`<div class="goalbar plan theme"><span class="label">Тема срока</span><b>${THEMES[S.theme].n}</b><span class="gd">${THEMES[S.theme].d}</span></div>`:"")+planBarHTML()+progBarHTML()+distHTML():""}`;
+  ${G?`<div class="goalbar ${ok?"ok":""}"><span class="label">${u("goal")}</span><b>${tr(G.n)}</b><span>${G.now()} · ${u(ok?"goalOn":"goalNot")}</span></div>`:""}${MODE==="gov"?ambBarHTML()+((S.era||S.theme)?`<div class="ctx">${S.era?`<div><span class="label">Эпоха</span> <b>${ERAS[S.era].n}</b><span class="gd"> — ${ERAS[S.era].d}</span></div>`:""}${S.theme?`<div><span class="label">Тема срока</span> <b>${THEMES[S.theme].n}</b><span class="gd"> — ${THEMES[S.theme].d}</span></div>`:""}</div>`:"")+planBarHTML()+progBarHTML()+distHTML():""}`;
 }
 function notesHTML(){ return S.notes.map(n=>n.k?`<div class="note fpn">${u(n.k,...(n.a||[]).map(x=>Array.isArray(x)?x.map(tr).join(", "):tr(x)))}</div>`:`<div class="note">${u("note",tr(ROLES[n.role].n),n.why,n.served,u("age",n.age),n.role==="opp")}</div>`).join(""); }
 function lastHTML(){
@@ -1055,10 +1060,10 @@ function goalHTML(){
 }
 function legacy(){
   const R=S.ruler, O=R.origin, g=(S.gdp/O.gdp-1)*100, y=(S.turn-R.startTurn)/4;
-  const forced=!["term","retire","death"].includes(S.why)&&!(MODE==="gov"&&S.why==="L");
+  const forced=!["term","retire","death","legend","honor"].includes(S.why)&&!(MODE==="gov"&&S.why==="L");
   const gd=R.goals.filter(x=>x.ok).length, gf=R.goals.length-gd;
   const fg=R.feats.filter(f=>f.good).length, fb=R.feats.length-fg;
-  const score=clamp(g,-40,60)*1.2+(S.m.p-50)*0.5-clamp((S.debt-O.debt)*0.2,-10,15)+Math.min(y,24)*1.5+gd*5-gf*2+fg*8-fb*8-(forced?15:0)-(S.forever?8:0)+(MODE==="gov"&&S.why==="L"?10:0);
+  const score=clamp(g,-40,60)*1.2+(S.m.p-50)*0.5-clamp((S.debt-O.debt)*0.2,-10,15)+Math.min(y,24)*1.5+gd*5-gf*2+fg*8-fb*8-(forced?15:0)-(S.forever?8:0)+(MODE==="gov"&&S.why==="L"?10:0)+(S.why==="legend"?20:S.why==="honor"?8:0);
   const t=TITLES[score>=55?0:score>=35?1:score>=15?2:score>=0?3:score>=-15?4:5];
   return {t,score,g,y,gd};
 }
@@ -1070,7 +1075,7 @@ function tableHTML(from,label){
     ${M.map(([k,n])=>row(tr(n),from[k],S.m[k],v=>v)).join("")}
    </table></div>`;
 }
-const durStr=y=>LANG==="zh"?nf(y,y%1?1:0).replace(/\.0$/,"")+"年":nf(y,y%1?2:0).replace(/[.,]?0+$/,"")+" "+u("years",Math.floor(y));
+const durStr=y=>LANG==="zh"?nf(y,y%1?1:0).replace(/\.0$/,"")+"年":nf(y,y%1?2:0).replace(/([.,]\d*?)0+$/,"$1").replace(/[.,]$/,"")+" "+(y%1?(LANG==="ru"?"года":u("years",2)):u("years",Math.floor(y)));
 function endHTML(){
   const R=S.ruler, y=(S.turn-R.startTurn)/4;
   const term=S.why==="term", G=R.goals[R.goals.length-1];
@@ -1083,12 +1088,13 @@ function endHTML(){
   } else if(term){
     const v=S.lastVote??vote();
     if(v>=50){ final=false; title=S.vrio?"Вы избраны губернатором!":u("reelected"); text=S.vrio?`Приставки «врио» больше нет: за вас ${u("vote",v)}. Впереди полный срок.`:u("reelectedT",u("vote",v),S.term+1,u("age",R.age),healthWord(R.health));
-      btns=`<button class="btn" id="next">${u("bNext",S.term+1)}</button><button class="btn ghost" id="retire">${u("bPeak")}</button>${transferBtn()}`;
-    } else { title=u("lost"); text=u("lostT",u("vote",v)); }
+      btns=`<button class="btn" id="next">${u("bNext",S.term+1)}</button><button class="btn ghost" id="retire">${u("bPeak")}</button>%%TR%%`;
+    } else if(MODE==="gov"&&S.vrio){ title="Врио не избрался"; text=`За вас — ${u("vote",v)}. Жители не утвердили вас губернатором, и Москва назначит в регион другого человека. Ваше правление окончено.`; }
+    else { title=u("lost"); text=u("lostT",u("vote",v)); }
   } else if(S.why==="retire"){ title=u("retired"); text=u("retiredT",u("age",R.age)); }
   else if(S.why==="death"){ title=u("died"); text=u("diedT",u("age",R.age)); }
   else { title=tr(ENDS[S.why][0]); text=tr(ENDS[S.why][1]); }
-  if(!final) return `<div class="card end fade"><div class="label">${tr(S.c.n)} · ${u("inPower",durStr(y))}</div><h2>${title}</h2><p>${text}</p>${goalLineX}${tableHTML(S.start,u("termStart"))}<div class="row">${btns}</div></div>`;
+  if(!final){ const tn=transferNote(); return `<div class="card end fade"><div class="label">${tr(S.c.n)} · ${u("inPower",durStr(y))}</div><h2>${title}</h2><p>${text}</p>${goalLineX}${tn}${tableHTML(S.start,u("termStart"))}<div class="row">${btns.replace("%%TR%%",transferBtn())}</div></div>`; }
   const L=legacy();
   if(!R.endTracked){R.endTracked=true; track("reign_end",{why:S.why,country:S.c.n,years:Math.round(L.y),terms:S.term,title:L.t});}
   const list=[...S.rulers,{no:R.no,y:L.y,t:L.t,why:S.why}];
@@ -1106,7 +1112,8 @@ function endHTML(){
 }
 function newspaperHTML(title,text,L,y){
   const R=S.ruler, O=R.origin;
-  const hl=(u("hl")[S.why]||title).replace("{y}",durStr(y));
+  const vl=MODE==="gov"&&S.vrio&&S.why==="term";
+  const hl=(vl?"Врио губернатора не смог избраться":(u("hl")[S.why]||title)).replace("{y}",durStr(y));
   const mine=S.log.filter(l=>l.r&&(l.q??0)>=R.startTurn&&l.tag!=="crisis"&&l.tag!=="election");
   const seen=new Set(), top=[];
   for(const l of [...mine].sort((a,b)=>(b.m||0)-(a.m||0))){ const h=l.ev.gid||H(l.ev); if(seen.has(h)) continue; seen.add(h); top.push(l); if(top.length>=3) break; }
@@ -1119,7 +1126,7 @@ function newspaperHTML(title,text,L,y){
    <div class="mast"><span>${tr(S.c.n)}</span><b>${u("paper")}</b></div>
    <div class="dline"><span>${u("issue")}</span><span>${year()}</span></div>
    <h3 class="ph">${hl}</h3>
-   <p class="lede">${(u("lede")[S.why]||(()=>text))(u("age",R.age),S.lastVote!=null?u("vote",S.lastVote):"")}</p>
+   <p class="lede">${(vl?(()=>text):(u("lede")[S.why]||(()=>text)))(u("age",R.age),S.lastVote!=null?u("vote",S.lastVote):"")}</p>
    <p class="hist">${u("histLine",tr(L.t))}</p>
    ${stories.length?`<div class="pcap">${u("highlights")}</div><div class="stories">${stories.join("")}</div>`:""}
    <div class="pnums"><div><span>${u("inPowerL")}</span><b>${durStr(y)}</b></div><div><span>${u("termsL")}</span><b>${S.term}</b></div><div><span>${u("fGdp")}</span><b>${sgn(g,1)}%</b></div><div><span>${u("fDebt")}</span><b>${sgn(dd,0)} ${u("pp")}</b></div></div>
@@ -1508,7 +1515,7 @@ const GOVR={
 };
 const UGOV={
  you:"Вы — губернатор", hReact:"Положение в регионе", kicker:"Симулятор правителя", rulerNo:n=>`Губернатор №${n}`, fRuler:"Губернатор", fGdp:"ВРП на душу", fDebt:"Долг бюджета", debtUnit:"% доходов",
- foot:"Данные ≈ 2024 (Росстат, РИА Рейтинг), округлены. Режим губернатора — бета.", hCountry:n=>`Только в регионе: ${n}`, bNew:"Новый регион", goalP:"Это обещание жителям. Выполните — получите награду и голоса на выборах. Провалите — жители и Москва запомнят.", bSucc:"Дальше: новый губернатор (врио)", rulers:"Губернаторы региона",
+ foot:"Данные ≈ 2024 (Росстат, РИА Рейтинг), округлены. Режим губернатора — бета.", hCountry:n=>`Только в регионе: ${n}`, bNew:"Новый регион", goalP:"Это обещание жителям. Выполните — получите награду и голоса на выборах. Провалите — жители и Москва запомнят.", bSucc:"Играть за следующего губернатора", rulers:"Губернаторы региона",
  dl:{p:"Ж",t:"Б",e:"Эк",l:"М"}, legacyL:"Краеведы назовут вас", histLine:t=>`Краеведы уже называют его «${t}».`, paper:"Губернские ведомости",
  retiredT:a=>`В ${a} вы передали дела преемнику. В регионе это случается не так часто, как хотелось бы.`,
  rollsub:(pop,age)=>`${pop} жителей ждут ваших решений. Вам ${age}.`,
@@ -1830,12 +1837,12 @@ function govNewRuler(){
 function govInit(){
   const L=[...(GOV_DIST[S.c.n]||GDIST)].sort(()=>Math.random()-.5).slice(0,6);
   S.dist=L.map(n=>({n,m:Math.round(clamp(S.m.p+rnd(-14,14),20,80))}));
-  govNewRuler(); S.mayor=50; qPush(0,"viceChoose");
+  govNewRuler(); S.mayor=50; qPush(0,"viceChoose"); S.handover=[GOV_FN.ambChoose()];
 }
 function govSuccessor(){
   for(const d of S.dist||[]) d.m=Math.round(50+(d.m-50)*0.5);
   S.queue=S.queue.filter(q=>!["vice","viceChoose","case1","case2","case3"].includes(q.fn));
-  govNewRuler(); qPush(3,"viceChoose");
+  govNewRuler(); qPush(3,"viceChoose"); qPush(5,"ambChoose"); S.rotDefy=0;
 }
 
 // --- После каждого решения ---
@@ -1846,6 +1853,7 @@ function govAfterChoose(ev,eff){
   if(ev.chr&&S.chars){const C=S.chars[ev.chr]; if(C.st===0) C.g=!!eff._g; C.st++;}
   S.termMinP=Math.min(S.termMinP??100,S.m.p);
   govStoryAfter(ev,eff);
+  lateAfter(ev,eff);
 }
 
 // --- План Москвы ---
@@ -2245,10 +2253,22 @@ UGOV.hl.arrest="Губернатор задержан";
 UGOV.lede.arrest=()=>"Губернатора увезли на допрос прямо из дома. В областном правительстве — тишина.";
 
 // ---------- Карьера: перевод в другой регион ----------
+function promoTarget(){
+  const bigger=GOV_REGIONS.filter(r=>r.n!==S.c.n&&r.n!=="Москва"&&r.pop>=S.c.pop*1.2);
+  const same=bigger.filter(r=>r.r===S.c.r);
+  const L=(same.length?[...same]:[...bigger]).sort((a,b)=>a.pop-b.pop).slice(0,same.length?2:3); return L.length?pickOne(L).n:null;
+}
+function transferOk(){ return MODE==="gov"&&!S.vrio&&S.term>=2&&S.m.l>=65&&S.goalOk===true&&S.planOk===true; }
+function transferNote(){
+  if(!transferOk()) return "";
+  if(S.offerTerm!==S.term){S.offerTerm=S.term; S.offerReg=promoTarget();}
+  if(!S.offerReg) return "";
+  const c=GOV_REGIONS.find(r=>r.n===S.offerReg);
+  return `<div class="goalbar plan ok"><span class="label">Предложение Москвы</span><b>Возглавить: ${c.n}</b><span class="gd" style="flex-basis:100%">Вы выполнили и обещание жителям, и план Москвы, а отношения с Москвой — ${S.m.l}. Вам предлагают регион крупнее: ${fmtPop(c.pop)} жителей против ${fmtPop(S.c.pop)} у вас${c.r===S.c.r?", в том же округе":""}. Там вы начнёте врио, а через два года — выборы.</span></div>`;
+}
 function transferBtn(){
-  if(MODE!=="gov"||S.vrio||S.m.l<60) return "";
-  if(S.offerTerm!==S.term){S.offerTerm=S.term; S.offerReg=pickOne(GOV_REGIONS.filter(r=>r.n!==S.c.n&&r.n!=="Москва")).n;}
-  return `<button class="btn ghost" id="transfer">Перевод: врио губернатора — ${S.offerReg}</button>`;
+  if(!transferOk()||!S.offerReg) return "";
+  return `<button class="btn ghost" id="transfer">Принять перевод: ${S.offerReg}</button>`;
 }
 function transfer(){
   const c=GOV_REGIONS.find(r=>r.n===S.offerReg); if(!c) return;
@@ -2259,7 +2279,7 @@ function transfer(){
   S.m={p:Math.round(48+(has("poor")?-4:0)+rnd(-5,5)),t:Math.round(clamp(70-c.debt*0.5,25,75)),e:Math.round(clamp(25+18*Math.log10(c.gdp/0.4),20,78)),l:Math.round(clamp(S.m.l,50,70))};
   S.queue=[]; S.usedAt={}; S.genSeen=[]; S.crisis=null; S.chain=null; S.prog=null; S.mega=null; S.reactAt={};
   const L=[...(GOV_DIST[c.n]||GDIST)].sort(()=>Math.random()-.5).slice(0,6); S.dist=L.map(n=>({n,m:Math.round(clamp(S.m.p+rnd(-14,14),20,80))}));
-  S.mayor=50; S.ruler.origin=snap();
+  S.mayor=50; S.ruler.origin=snap(); S.ruler.ambGdp=c.gdp; S.rotDefy=0; S.rank=null;
   S.handover=[HO("Новый регион","Вы приехали в незнакомый регион. Местные элиты настороженно смотрят на «варяга».",[["Привезти своих людей",{l:2,p:-2},"Своя команда, чужой регион."],["Опираться на местных",{p:2,l:-1},"Местные оценили."]])];
   S.vrio=true; S.lastVote=null; S.goalEff=null; S.term++; beginTerm(); render(); scrollTo({top:0});
 }
@@ -2271,6 +2291,8 @@ function govBeginTerm(){
   S.theme=S.vrio?null:pickOne(Object.keys(THEMES));
   if(S.theme){ qPush(3+ri(0,6),"theme",ri(0,2)); }
   if(!S.vrio&&S.term%2===1){ qPush(2,"mayor1"); if(Math.random()<0.35) qPush(6,"mayor2"); qPush(10,"mayor3"); }
+  lateBeginTerm();
+  qPush(S.vrio?2+ri(0,4):4+ri(0,7),"scheme");
   if(!S.vrio&&!S.ruler.megaOffered&&!S.mega){ S.ruler.megaOffered=true; qPush(5,"megaOffer"); }
 }
 function govStoryAfter(ev,eff){
@@ -2282,6 +2304,8 @@ function govStoryAfter(ev,eff){
   if(eff._pq&&S.prog) S.prog.q=(S.prog.q||0)+eff._pq;
   if(eff._pfin&&S.prog){ const D=PROGS[S.prog.id]; S.progDone=(S.progDone||[]).concat(S.prog.id); S.ruler.feats.push({n:D.feat,good:(S.prog.q||0)>=0}); track("gov_program_done",{prog:S.prog.id}); S.prog=null; }
   if(eff._case) S.caseRisk=(S.caseRisk||0)+eff._case;
+  if(eff._q) for(const [d,fn,a] of eff._q) qPush(d,fn,a);
+  if(eff._loot){ S.ruler.loot=(S.ruler.loot||0)+1; S.ruler.feats.push({n:ev.h,good:false}); }
   if(eff._mega&&!S.mega){ S.mega={type:eff._mega,q:0}; qPush(1,"megaContr"); }
   if(eff._mc&&S.mega){ S.mega.c=eff._mc; if(eff._mc==="kin") S.caseRisk=(S.caseRisk||0)+1; qPush(6,"megaStage",1); }
   if(eff._mq&&S.mega) S.mega.q+=eff._mq;
@@ -2298,6 +2322,187 @@ function govStoryAfter(ev,eff){
   progTick();
 }
 Object.assign(GOV_TAGL,{vice:"Назначение",vicestory:()=>`Вице-губернатор · ${VICE[S.vice]||""}`,mega:"Стройка века",mayor:"Мэр областного центра",theme:()=>`Тема срока · ${THEMES[S.theme]?.n||""}`,prog:()=>"Губернаторская программа",case:"Уголовное дело"});
+
+
+// ===== «Москва зовёт»: развилка вместо мгновенного финала =====
+GOV_FN.moscowCall=()=>SC("moscow","Москва зовёт","В администрации президента вами довольны. Вам предлагают выбор.",[
+  ["Стать федеральным министром",{_msk:"minister"},"Вы летите в Москву."],
+  ["Попросить регион покрупнее",{_msk:"transfer"},"Москва согласилась: вас переводят."],
+  ["Отказаться и остаться",{p:5,l:-20,_msk:"stay"},"Земляки оценили. В Москве обиделись."]]);
+const MSK_ARC=[
+ SC("moscow","Первый день в министерстве","Вас назначили федеральным министром. Аппарат встречает настороженно.",[["Привести свою команду из региона",{_ms:1},"Свои люди рядом."],["Опереться на старый аппарат",{_ms:0},"Аппарат доволен. Перемен не будет."]]),
+ SC("moscow","Аппаратная война","Вице-премьер хочет забрать у вашего министерства половину бюджета.",[["Бороться до конца",{_ms:Math.random()<0.5?2:-1},"Исход войны решился за закрытыми дверями."],["Договориться",{_ms:1},"Компромисс устроил всех."],["Уступить",{_ms:-1},"Министерство стало меньше."]]),
+ SC("moscow","Доклад президенту","Вам дают пять минут на доклад президенту.",[["Честно рассказать о проблемах",{_ms:1,_mskEnd:1},"Президент слушал внимательно."],["Рассказать только об успехах",{_ms:0,_mskEnd:1},"Доклад прошёл гладко."]]),
+];
+function govMoscowAfter(eff){
+  if(eff._msk){ S.moscowPending=false; track("gov_moscow_call",{choice:eff._msk});
+    if(eff._msk==="minister"){ S.mskArc=true; S.mskScore=0; S.handover=[...MSK_ARC,...(S.handover||[])]; }
+    if(eff._msk==="transfer"){ S.offerReg=promoTarget()||pickOne(GOV_REGIONS.filter(r=>r.n!==S.c.n&&r.n!=="Москва")).n; S.doTransfer=true; } }
+  if(eff._ms!=null) S.mskScore=(S.mskScore||0)+eff._ms;
+  if(eff._mskEnd){ const s=S.mskScore||0; S.ruler.feats.push({n:s>=3?"Стал вице-премьером":s>=1?"Федеральный министр":"Министр на один сезон",good:s>=1}); S.mskArc=false; }
+}
+GOV_TAGL.moscow="Москва зовёт";
+
+
+// ===== Губернатор: поздняя игра (мечта, рейтинг, ротация, эпохи, поздние события) =====
+
+// ---------- Рейтинг губернаторов (раз в год) ----------
+function rankScore(){ return 0.3*S.m.p+0.2*S.m.t+0.25*S.m.e+0.25*S.m.l+(S.dist?(distAvg()-50)*0.2:0)+Math.min(8,(S.ruler.feats||[]).filter(f=>f.good).length*1.5); }
+function rankCompute(){
+  const s=rankScore(); const r=Math.round(clamp(88-(s-22)*1.55+rnd(-3,3),1,85));
+  S.rankPrev=S.rank??null; S.rank=r; S.ruler.bestRank=Math.min(S.ruler.bestRank??99,r);
+  const d=S.rankPrev!=null?S.rankPrev-r:0;
+  S.notes.push({k:"rankNote",a:[String(r),d>0?`↑ на ${d}`:d<0?`↓ на ${-d}`:"без изменений"]});
+  if(r<=10) S.m.l=clamp(S.m.l+2,1,CAP-1);
+  if(r>=76) S.m.l=clamp(S.m.l-3,1,CAP-1);
+}
+U.ru.rankNote=(r,d)=>`Вышел федеральный рейтинг губернаторов: вы на ${r}-м месте из 85 (${d}).`;
+const rankLabel=()=>S.rank?`${S.rank}-е место`:"ещё не вышел";
+
+// ---------- Мечта правления ----------
+const AMB={
+ top10:{n:"Регион в десятке лучших",d:"Подняться в федеральном рейтинге губернаторов до 10-го места.",ok:()=>S.rank!=null&&S.rank<=10,now:()=>`рейтинг: ${rankLabel()}`},
+ grp:{n:"ВРП +25%",d:"Вырастить ВРП на душу на четверть с начала правления.",ok:()=>S.gdp/S.ruler.ambGdp>=1.25,now:()=>sgn((S.gdp/S.ruler.ambGdp-1)*100,1)+"% из +25%"},
+ calm:{n:"Восемь спокойных лет",d:"Восемь лет подряд доверие жителей не ниже 45.",ok:()=>(S.calmQ||0)>=32,now:()=>`${Math.floor((S.calmQ||0)/4)} из 8 лет`},
+ debt:{n:"Регион без долгов",d:"Снизить долг бюджета ниже 10% доходов.",av:()=>S.debt>=20,ok:()=>S.debt<10,now:()=>`долг ${Math.round(S.debt)}%`},
+ deeds:{n:"Четыре больших дела",d:"Довести до конца четыре программы или стройки.",ok:()=>(S.ruler.feats||[]).filter(f=>f.good).length>=4,now:()=>`${(S.ruler.feats||[]).filter(f=>f.good).length} из 4`},
+};
+GOV_FN.ambChoose=()=>{const ids=Object.keys(AMB).filter(k=>!AMB[k].av||AMB[k].av()).sort(()=>Math.random()-.5).slice(0,3);
+  return SC("amb","Мечта вашего правления","Каким вас должны запомнить? Выберите большую цель на всё правление. Достигнете — сможете уйти легендой. "+ids.map(k=>`«${AMB[k].n}»: ${AMB[k].d.toLowerCase()}`).join(" "),ids.map(k=>[AMB[k].n,{_amb:k},`Цель правления: ${AMB[k].n.toLowerCase()}.`]));};
+function ambBarHTML(){
+  const A=AMB[S.ruler.amb]; if(!A) return "";
+  const ok=A.ok();
+  return `<div class="goalbar plan amb ${ok?"ok":""}"><span class="label">Мечта правления</span><b>${A.n}</b><span>${A.now()}</span></div>`;
+}
+GOV_FN.ambDone=()=>SC("amb","Мечта сбылась",`Вы добились главного: «${AMB[S.ruler.amb].n}». Об этом пишут федеральные газеты.`,[
+  ["Уйти легендой",{_end:"legend"},"Вы объявили, что уходите на пике."],
+  ["Остаться и работать дальше",{p:2,l:1},"Мечта сбылась, но работа продолжается."]]);
+
+// ---------- Ротация (с 3-го срока) ----------
+GOV_FN.rot=()=>{const n=S.rotDefy||0;
+  return SC("rot",n?"Москва настаивает":"Москва намекает на ротацию",n?`Вы уже ${n===1?"один раз":n+" раза"} отказались уйти. В Москве подбирают вам замену, а проверки идут одна за другой.`:"В администрации президента говорят: вы засиделись. Губернаторам принято меняться, и вам предлагают почётный уход.",[
+   ["Уйти с почётом",{_end:"honor"},"Вас проводят с наградой и хорошей должностью."],
+   ["Остаться в кресле",{l:-6-2*n,_rot:1},n?"Давление растёт.":"Москва запомнила отказ."]]);};
+const ROT_PRESS=[
+ SC("rotp","Внеплановая проверка","Из Москвы приехала очередная проверка. Ищут, к чему придраться.",[["Открыть все документы",{t:-2,l:1},"Нашли мелочи."],["Тянуть время",{l:-3},"Проверка задержалась на месяц."]]),
+ SC("rotp","Утечка компромата","В телеграм-каналах появились документы о ваших старых решениях.",[["Опровергнуть",{p:-1},"Опровержение мало кто прочитал."],["Промолчать",{p:-3},"Вопросы копятся."]]),
+ SC("rotp","Вашего зама зовут в Москву","Москва забирает вашего лучшего заместителя на федеральную должность.",[["Отпустить",{e:-2},"Ушёл ценный человек."],["Уговорить остаться",{l:-3},"Остался. Москва недовольна."]]),
+];
+
+// ---------- Эпохи (каждые 2 срока) ----------
+const ERAS={
+ calm:{n:"Спокойные годы",d:"Без больших потрясений."},
+ boom:{n:"Нефтяной бум",d:"Цены на сырьё высокие: в начале каждого года бюджет +2.",yr:{t:2}},
+ crisis:{n:"Кризис",d:"Экономика падает: в начале каждого года бюджет −2 и экономика −1.",yr:{t:-2,e:-1}},
+ pandemic:{n:"Пандемия",d:"Больницы переполнены, всё решается быстро и дорого."},
+ demo:{n:"Демографическая яма",d:"Детей рождается мало: школы пустеют, районы стареют. Настроение районов падает быстрее."},
+ digital:{n:"Цифровизация",d:"Всё уходит в онлайн: госуслуги, школы, медицина."},
+};
+const ER=(h,x,o)=>SC("era",h,x,o);
+const ERA_EV={
+ boom:[ER("Сверхдоходы","Налоговые поступления от сырьевых компаний выросли вдвое. Куда направить деньги?",[["Резервный фонд",{t:4,l:1},"Подушка на будущее."],["Дороги и школы",{t:-2,p:4},"Видно сразу."]]),
+       ER("Цены растут","Бум разогнал цены: жильё и продукты дорожают быстрее зарплат.",[["Субсидии на продукты",{t:-3,p:3},"Цены сдержаны."],["Пусть рынок сам",{p:-3,e:1},"Жители недовольны."]])],
+ crisis:[ER("Сокращения на заводах","Кризис: крупные заводы отправляют людей в простой.",[["Областная программа занятости",{t:-4,p:3,e:1},"Люди при деле."],["Ждать конца кризиса",{p:-3,e:-1},"Очереди на бирже труда."]]),
+         ER("Банк региона на грани","Крупнейший местный банк не может вернуть вклады.",[["Спасти банк",{t:-5,p:2},"Вкладчики спасены."],["Пусть разбирается ЦБ",{p:-4},"Люди потеряли сбережения."]])],
+ pandemic:[ER("Больницы переполнены","Коек не хватает, врачи работают по две смены.",[["Временные госпитали",{t:-5,p:4},"Мест хватило."],["Перевести плановую помощь",{p:-2},"Плановые операции отменены."]]),
+           ER("Локдаун","Врачи просят закрыть кафе и торговые центры на месяц.",[["Закрыть",{e:-4,p:1},"Бизнес стонет, больницы выдохнули."],["Только маски и перчатки",{p:-1,e:-1},"Компромисс."]]),
+           ER("Вакцинация","Москва ждёт высокий процент вакцинированных.",[["Убеждать, а не заставлять",{p:2,l:-1},"Медленно, зато без скандалов."],["Обязательная для бюджетников",{l:3,p:-3},"Цифры выросли."]])],
+ demo:[ER("Школы без учеников","В сёлах закрываются школы: детей почти нет.",[["Сохранить малые школы",{t:-3,p:3},"Сёла благодарны."],["Объединить",{t:2,p:-3},"Детей возят за 30 км."]]),
+       ER("Выплаты за третьего ребёнка","Предлагают областные выплаты семьям за третьего ребёнка.",[["Ввести",{t:-4,p:3},"Рождаемость чуть выросла."],["Нет денег",{p:-1},"Без изменений."]])],
+ digital:[ER("Госуслуги онлайн","Москва требует перевести все областные услуги в онлайн.",[["Срочно перевести",{t:-3,l:3,p:-1},"Пенсионеры в растерянности."],["Постепенно, с помощниками в МФЦ",{t:-2,p:2},"Всем удобно."]]),
+          ER("Интернет в сёлах","В сотне сёл до сих пор нет нормального интернета.",[["Провести за счёт области",{t:-4,p:3,e:1},"Сёла онлайн."],["Ждать федеральной программы",{p:-2},"Школьники учатся на крыльце сельсовета."]])],
+};
+GOV_FN.era=i=>{const L=ERA_EV[S.era]||[]; return L[i]||GOV_FN.filler();};
+
+// ---------- События поздних сроков (открываются с 3-го срока) ----------
+const GL=(h,x,o)=>({tag:null,minT:3,h,x,o});
+GOV_EVENTS.push(
+ GL("Улица вашего имени","Депутаты предлагают назвать вашим именем новую улицу. Вы ещё у власти.",[["Запретить",{p:2,l:1},"Скромность оценили."],["Не возражать",{p:-3,l:2},"Над улицей шутят."]]),
+ GL("Ваши люди везде","Журналисты насчитали: половина глав районов — ваши бывшие помощники.",[["Сменить часть глав",{p:3,l:-2},"Новые лица в районах."],["Это опытные люди",{p:-3,l:1},"Ничего не меняется."]]),
+ GL("Поколение одного губернатора","Студенты признаются: они не помнят другого губернатора, кроме вас.",[["Встреча с молодёжью",{p:3},"Разговор получился живым."],["Пустяки",{p:-2},"Молодёжь пожимает плечами."]]),
+ GL("Старые обещания","Блогер собрал ваши обещания за все годы. Половина не выполнена.",[["Признать и выполнить главные",{t:-4,p:3},"Три обещания выполнены за год."],["Сказать, что времена изменились",{p:-3},"Ролик посмотрели полмиллиона."]]),
+ GL("Портрет в каждом кабинете","Чиновники развесили ваши портреты во всех учреждениях.",[["Снять",{p:2},"Портреты убрали."],["Пусть висят",{p:-2,l:1},"Шутки в сети."]]),
+ GL("Кого готовите на смену?","На пресс-конференции вас спрашивают о преемнике.",[["Назвать молодого зама",{l:2,p:1},"У региона появилось будущее."],["Рано об этом говорить",{l:-2},"Слухи множатся."]]),
+ GL("Усталость команды","Министры работают с вами по десять лет и уже ничего не предлагают.",[["Обновить правительство",{p:2,e:2,l:-2},"Новые идеи."],["Команда проверена временем",{e:-2},"Всё по-старому."]]),
+ GL("Юбилей правления","Помощники готовят торжество к годовщине вашего правления.",[["Отменить торжество",{p:2},"Без лишнего пафоса."],["Провести",{t:-2,l:1,p:-2},"Пышно и спорно."]]),
+);
+
+// ---------- Подключение ----------
+function lateBeginTerm(){
+  // эпоха: новая каждые 2 срока
+  if(!S.era||S.term%2===1){ const prev=S.era; const keys=Object.keys(ERAS).filter(k=>k!==prev); S.era=S.term===1&&!S.eraSet?"calm":pickOne(keys); S.eraSet=true;
+    if(ERA_EV[S.era]&&!S.vrio){ qPush(1+ri(0,8),"era",0); if(ERA_EV[S.era][1]) qPush(9+ri(0,4),"era",1+ri(0,ERA_EV[S.era].length-2)); } }
+  // ротация с 3-го срока
+  if(!S.vrio&&S.term>=3) qPush(1,"rot");
+  if(!S.vrio&&(S.rotDefy||0)>0) for(let i=0;i<Math.min(2,S.rotDefy);i++) S.queue.push({at:S.turn+4+i*5,fn:"rotp",a:i});
+}
+GOV_FN.rotp=i=>ROT_PRESS[(i+(S.term||0))%ROT_PRESS.length];
+function lateAfter(ev,eff){
+  if(eff._amb){ S.ruler.amb=eff._amb; S.ruler.ambGdp=S.gdp; S.ruler.ambDone=false; S.calmQ=0; }
+  if(eff._rot) S.rotDefy=(S.rotDefy||0)+1;
+  S.calmQ=S.m.p>=45?(S.calmQ||0)+1:0;
+  if(S.era&&ERAS[S.era].yr&&tt()%4===0) for(const k in ERAS[S.era].yr) S.m[k]=clamp(S.m[k]+ERAS[S.era].yr[k],1,CAP-1);
+  if(S.era==="demo"&&S.dist) for(const d of S.dist) d.m=Math.max(0,d.m-0.3);
+  if(tt()%4===3) rankCompute();
+  const A=AMB[S.ruler.amb];
+  if(A&&!S.ruler.ambDone&&A.ok()){ S.ruler.ambDone=true; S.ruler.feats.push({n:`Мечта: ${A.n}`,good:true}); track("gov_legend_ready",{amb:S.ruler.amb}); S.handover=[GOV_FN.ambDone(),...(S.handover||[])]; }
+}
+ENDS.legend=["Легенда региона","Вы добились главной цели правления и ушли на пике. Регион запомнит вас надолго."];
+ENDS.honor=["Почётная отставка","Вы приняли предложение Москвы и ушли вовремя: с наградой, проводами и новой должностью."];
+UGOV.hl.legend="Губернатор уходит легендой";
+UGOV.hl.honor="Губернатор уходит с почётом";
+UGOV.lede.legend=()=>"Губернатор добился главной цели своего правления и объявил об уходе. Регион провожает его овацией.";
+UGOV.lede.honor=()=>"После долгих лет работы губернатор принял предложение Москвы и передал дела преемнику.";
+Object.assign(GOV_TAGL,{amb:"Мечта правления",rot:"Ротация",rotp:"Давление Москвы",era:()=>`Эпоха · ${ERAS[S.era]?.n||""}`});
+
+
+// ===== Губернатор: «Схемы» — один соблазн за срок, с последствиями =====
+const SH=(id,h,x,o)=>({id,tag:"scheme",h,x,o});
+const SCHEMES=[
+ SH("ooo","Обналичка через ООО","Знакомый бизнесмен предлагает пропустить часть областных контрактов через цепочку ООО-однодневок. Разница «осядет на нужды» — и вам, и ему.",[
+   ["Согласиться",{t:3,_case:3,_loot:1,_q:[[6,"sch_ooo"]]},"Деньги пошли по цепочке. Тихо."],
+   ["Отказать",{},"Бизнесмен пожал плечами и ушёл."],
+   ["Передать его силовикам",{l:2,p:1,e:-1},"Бизнесмена задержали. Деловое сообщество насторожилось."]]),
+ SH("mining","Майнинговая ферма","Майнеры хотят льготный тариф на электричество для фермы в райцентре и предлагают вам «долю в бизнесе».",[
+   ["Взять долю",{e:1,_case:2,_loot:1,_q:[[5,"sch_mining"]]},"Ферма гудит круглые сутки."],
+   ["Только обычный тариф и налоги",{e:2,t:1},"Ферма работает легально и платит налоги."],
+   ["Запретить майнинг в регионе",{p:1,e:-1},"Майнеры уехали к соседям."]]),
+ SH("cryptofund","Резервы в криптовалюту","Молодой советник уверяет: если вложить резервный фонд области в криптовалюту, через год он удвоится.",[
+   ["Вложить",{_q:[[4,"sch_crypto"]]},"Резервы ушли на биржу."],
+   ["Вложить половину",{_q:[[4,"sch_crypto_half"]]},"Половина резервов на бирже."],
+   ["Ни в коем случае",{l:1},"Минфин одобрил вашу осторожность."]]),
+ SH("water","Приватизация водоканала","Областной водоканал предлагают продать «своему» инвестору за треть цены. Покупатель обещает не забыть.",[
+   ["Продать своему",{t:3,_case:3,_loot:1,_q:[[5,"sch_water"]]},"Сделка закрыта за неделю."],
+   ["Открытый аукцион",{t:6,e:1,l:-1},"Продали дорого и честно. «Свои» обиделись."],
+   ["Не продавать",{},"Водоканал остался областным."]]),
+ SH("land","Земли совхоза","Чиновники просят переписать земли бывшего совхоза под коттеджи. Участки достанутся их родственникам.",[
+   ["Подписать",{l:2,p:-2,_case:2,_loot:1,_q:[[6,"sch_land"]]},"Земля ушла «своим»."],
+   ["Отдать фермерам в аренду",{p:2,e:1,l:-1},"Поля снова засеяны."]]),
+ SH("kickback","Десять процентов","Подрядчик намекает: 10% от контракта на дороги — вам, если он выиграет конкурс.",[
+   ["Взять",{_case:4,_loot:1,_q:[[4,"sch_kick"]]},"Конкурс выиграл «нужный» подрядчик."],
+   ["Отказать",{e:-1},"Подрядчик проиграл конкурс и обиделся."],
+   ["Записать разговор и передать в ФСБ",{p:3,l:-1},"Громкое задержание. Подрядчики стали осторожнее."]]),
+ SH("offshore","Прибыль уходит в офшор","Прибыль областного аэропорта годами уходит через кипрскую компанию. За ней стоят «уважаемые люди».",[
+   ["Вернуть под контроль области",{t:4,l:-3},"Деньги вернулись в бюджет. Нажили врагов."],
+   ["Не трогать",{l:2,_case:1},"Уважаемые люди благодарны."]]),
+ SH("cryptobribe","Подарок в криптовалюте","Застройщик предлагает «подарок» в криптовалюте на анонимный кошелёк за разрешение строить у реки.",[
+   ["Принять",{e:2,_case:4,_loot:1},"Кошелёк пополнился. Стройка у реки началась."],
+   ["Отказать",{},"Застройщик ищет другие пути."]]),
+ SH("bankrupt","Обанкротить завод","Предлагают довести областной завод до банкротства и выкупить его активы через «своих».",[
+   ["Довести до банкротства",{t:2,e:-3,p:-2,_case:3,_loot:1},"Завод закрыт, активы у «своих»."],
+   ["Спасать завод",{t:-4,e:2},"Завод работает."]]),
+];
+Object.assign(GOV_FN,{
+ scheme:()=>{ S.schemeUsed=S.schemeUsed||[]; let L=SCHEMES.filter(x=>!S.schemeUsed.includes(x.id)); if(!L.length){S.schemeUsed=[];L=SCHEMES;} const e=pickOne(L); S.schemeUsed.push(e.id); return e; },
+ sch_ooo:()=>SC("scheme","Налоговая нашла однодневки","ФНС раскрутила цепочку ООО-однодневок по областным контрактам. Следы ведут в областное правительство.",[["Свалить на министра",{l:-2,_case:1},"Министр задержан. Он молчит. Пока."],["Тихо вернуть деньги в бюджет",{t:-5,_case:-1},"Деньги вернулись. Вопросы остались."]]),
+ sch_mining:()=>SC("scheme","Свет отключают в сёлах","Майнинговая ферма съедает столько электричества, что в соседних сёлах отключают свет.",[["Закрыть ферму",{p:3,e:-1},"Свет вернулся. Доля пропала."],["Терпеть",{p:-5,_case:1},"Жители записали видео при свечах."]]),
+ sch_crypto:()=>Math.random()<0.45?SC("scheme","Крипта взлетела","Курс вырос, резервный фонд области почти удвоился.",[["Зафиксировать прибыль",{t:9,l:1},"Бюджет никогда не был так богат."],["Держать дальше",{_q:[[3,"sch_crypto"]]},"Жадность или вера?"]]):SC("scheme","Крипта обвалилась","Курс рухнул. От резервного фонда осталась пятая часть.",[["Признать ошибку",{t:-10,p:-2},"Советника уволили. Бюджет пуст."],["Скрыть убытки",{t:-10,_case:2},"В отчётах всё хорошо. Пока."]]),
+ sch_crypto_half:()=>Math.random()<0.45?SC("scheme","Крипта взлетела","Половина резервов почти удвоилась.",[["Зафиксировать прибыль",{t:5},"Неплохо."],["Держать дальше",{_q:[[3,"sch_crypto_half"]]},"Посмотрим."]]):SC("scheme","Крипта обвалилась","Половина резервов сгорела.",[["Признать ошибку",{t:-5,p:-1},"Урок усвоен."],["Скрыть убытки",{t:-5,_case:1},"В отчётах всё хорошо."]]),
+ sch_water:()=>SC("scheme","Тарифы на воду выросли вдвое","Новый владелец водоканала поднял тарифы вдвое. Журналисты выясняют, кто купил его за треть цены.",[["Заставить снизить тарифы",{p:2,l:-1},"Тарифы снизили. Владелец недоволен."],["Это частный бизнес",{p:-6,_case:1},"Жители вышли на митинг."]]),
+ sch_land:()=>SC("scheme","Коттеджи на полях","На месте полей выросли коттеджи. Блогер выложил, чьи это фамилии.",[["Уволить чиновников",{p:3,l:-2},"Фамилии сменились. Коттеджи остались."],["Не комментировать",{p:-4,_case:1},"Ролик посмотрели миллион раз."]]),
+ sch_kick:()=>SC("scheme","Дорога развалилась","Дорогу, построенную «нужным» подрядчиком, размыло за одну весну.",[["Заставить переделать",{t:-2,p:1},"Переделали. Подрядчик намекает, что знает слишком много."],["Отремонтировать за бюджет",{t:-5,_case:1},"Ремонт прошёл тихо."]]),
+});
+GOV_TAGL.scheme="Предложение без свидетелей";
 
 function render(){
   const app=$("#app");
@@ -2328,7 +2533,7 @@ function render(){
     }; tick(); return;
   }
   const main=S.phase==="end"?endHTML():S.phase==="goal"?goalHTML():timelineHTML()+(S.fpUI?fpHTML():S.pgUI?progHTML():fpButton()+progButton()+cardHTML());
-  app.innerHTML=(MODE==="gov"?"":langBar())+dossierHTML()+gaugeHTML()+main+teamHTML()+`<p class="foot">${u("foot")}</p>`;
+  app.innerHTML=(MODE==="gov"?"":langBar())+dossierHTML()+gaugeHTML()+main+(MODE==="gov"?"":teamHTML())+`<p class="foot">${u("foot")}</p>`;
   bindLang();
   if(S.phase==="end"){
     const on=(id,f)=>{const b=document.getElementById(id); if(b) b.onclick=f;};
